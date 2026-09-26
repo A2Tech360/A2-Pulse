@@ -28,29 +28,25 @@ def:pub AppShell() -> JsxElement {
         filters = nxt;
     }
 
-    return <div className="flex min-h-svh flex-col">
-        <header className="rule-double bg-background/85 backdrop-blur">
-            <div className="mx-auto w-full max-w-7xl pl-4 pr-4 sm:pl-6 sm:pr-6">
-                <div className="flex items-center justify-between gap-4 pt-4">
-                    <span className="kicker hidden italic text-primary sm:inline">{"Ann Arbor's living local graph"}</span>
-                    <span className="kicker italic text-muted-foreground">{dateline}</span>
-                </div>
-                <Link to="/network" className="block text-center">
-                    <h1 className="font-display text-5xl font-black leading-none tracking-tight sm:text-6xl md:text-7xl">
-                        {"A2 "}<span className="text-primary">{"Pulse"}</span>
-                    </h1>
+    return <div className="flex min-h-svh flex-col overflow-x-hidden">
+        <header className="sticky top-0 z-30 border-b bg-background/80 backdrop-blur">
+            <div className="mx-auto flex h-14 w-full max-w-7xl items-center justify-between gap-4 pl-4 pr-4 sm:pl-6 sm:pr-6">
+                <Link to="/network" className="flex items-center gap-2">
+                    <span className="size-2.5 rounded-full bg-foreground" />
+                    <span className="text-base font-semibold tracking-tight">{"A2 Pulse"}</span>
                 </Link>
-                <nav className="mt-3 flex flex-wrap items-center justify-center gap-1.5 border-t pt-3 pb-3 sm:gap-3">
+                <nav className="flex items-center gap-1 rounded-lg bg-muted pt-1 pb-1 pl-1 pr-1">
                     {for item in NAV_ITEMS {
                         <Link
                             key={item["to"]}
                             to={item["to"]}
-                            className={"kicker border pt-1.5 pb-1.5 pl-3 pr-3 transition-colors " + ("border-foreground bg-foreground text-background" if path.startswith(item["to"]) else "border-border text-muted-foreground hover:border-foreground hover:text-foreground")}
+                            className={"rounded-md pt-1 pb-1 pl-3 pr-3 text-sm font-medium transition-colors " + ("bg-background text-foreground shadow-sm" if path.startswith(item["to"]) else "text-muted-foreground hover:text-foreground")}
                         >
                             {item["label"]}
                         </Link>
                     }}
                 </nav>
+                <span className="hidden text-xs text-muted-foreground md:inline">{dateline}</span>
             </div>
         </header>
         <main className="flex flex-1 flex-col">
@@ -62,11 +58,6 @@ def:pub AppShell() -> JsxElement {
                 <Route path="*" element={<Navigate to="/network" replace={True} />} />
             </Routes>
         </main>
-        <footer className="border-t">
-            <div className="mx-auto flex w-full max-w-7xl flex-wrap items-center justify-between gap-2 pt-4 pb-4 pl-4 pr-4 sm:pl-6 sm:pr-6">
-                <span className="kicker text-muted-foreground">{"One Jac graph. Three ways to live in your city."}</span>
-                <span className="kicker text-muted-foreground">{"A2 Pulse " + str(d.getFullYear())}</span>
-            </div>
-        </footer>
+
     </div>;
 }

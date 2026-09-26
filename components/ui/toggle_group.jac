@@ -17,7 +17,7 @@ def:pub ToggleGroup(props: any) -> JsxElement {
             data-spacing={spacing}
             data-orientation={orientation}
             className={cn(
-                "rounded-none data-[size=sm]:rounded-none group/toggle-group flex w-fit flex-row items-center data-vertical:flex-col data-vertical:items-stretch",
+                "rounded-lg data-[size=sm]:rounded-[min(var(--radius-md),10px)] group/toggle-group flex w-fit flex-row items-center data-vertical:flex-col data-vertical:items-stretch",
                 props["className"]
             )}
         >
@@ -30,7 +30,7 @@ def:pub ToggleGroupItem(props: any) -> JsxElement {
     size = props["size"] or "default";
     variantsFn: any = toggleVariants();
     computedClass = cn(
-        "group-data-[spacing=0]/toggle-group:rounded-none group-data-[spacing=0]/toggle-group:px-2 group-data-[spacing=0]/toggle-group:has-data-[icon=inline-end]:pr-1.5 group-data-[spacing=0]/toggle-group:has-data-[icon=inline-start]:pl-1.5 group-data-horizontal/toggle-group:data-[spacing=0]:first:rounded-none group-data-vertical/toggle-group:data-[spacing=0]:first:rounded-none group-data-horizontal/toggle-group:data-[spacing=0]:last:rounded-none group-data-vertical/toggle-group:data-[spacing=0]:last:rounded-none shrink-0 focus:z-10 focus-visible:z-10",
+        "group-data-[spacing=0]/toggle-group:rounded-none group-data-[spacing=0]/toggle-group:px-2 group-data-[spacing=0]/toggle-group:has-data-[icon=inline-end]:pr-1.5 group-data-[spacing=0]/toggle-group:has-data-[icon=inline-start]:pl-1.5 group-data-horizontal/toggle-group:data-[spacing=0]:first:rounded-l-lg group-data-vertical/toggle-group:data-[spacing=0]:first:rounded-t-lg group-data-horizontal/toggle-group:data-[spacing=0]:last:rounded-r-lg group-data-vertical/toggle-group:data-[spacing=0]:last:rounded-b-lg shrink-0 focus:z-10 focus-visible:z-10",
         variantsFn.call(None, {"variant": variant, "size": size}),
         props["className"]
     );

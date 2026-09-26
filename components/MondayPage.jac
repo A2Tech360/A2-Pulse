@@ -77,23 +77,14 @@ def:pub MondayPage() -> JsxElement {
     return <div className="mx-auto flex w-full max-w-6xl flex-col gap-8 pt-8 pb-12 pl-4 pr-4 sm:pl-6 sm:pr-6 animate-in fade-in slide-in-from-bottom-2 duration-500">
         {#* headline *#}
         <div className="grid gap-6 lg:grid-cols-[1.4fr_1fr] lg:items-end">
-            <div className="flex flex-col gap-3">
-                <div className="flex items-center gap-3">
-                    <span className="h-px w-10 bg-primary" />
-                    <span className="kicker text-primary">{"The Monday Edition"}</span>
-                </div>
-                <h2 className="font-display text-4xl font-black leading-[0.95] tracking-tight sm:text-5xl md:text-6xl">
-                    {"Five things. "}<span className="text-primary">{"Your week."}</span>
-                </h2>
-                <p className="max-w-lg text-base leading-relaxed text-foreground/80">
-                    {"A walker starts at you, follows your home, route and interests through the graph, and returns what actually touches your week, with what to do about it."}
-                </p>
+            <div className="flex flex-col gap-1.5">
+                <h2 className="text-2xl font-semibold tracking-tight">{"My Monday"}</h2>
+                <p className="max-w-lg text-sm text-muted-foreground">{"The five things that touch your week, with what to do about each."}</p>
             </div>
             <div className="flex flex-col gap-2">
-                <span className="kicker text-muted-foreground">{"Read the edition for"}</span>
-                <div className="grid grid-cols-3 border border-foreground">
+                <div className="grid grid-cols-3 gap-1 rounded-lg bg-muted pt-1 pb-1 pl-1 pr-1">
                     {for p in PERSONA_TABS {
-                        <button key={p["id"]} type="button" onClick={lambda (e: MouseEvent) { persona = p["id"]; }} className={"flex flex-col gap-0.5 border-r pt-2.5 pb-2.5 pl-3 pr-3 text-left transition-colors last:border-r-0 " + ("bg-foreground text-background" if persona == p["id"] else "bg-card hover:bg-muted")}>
+                        <button key={p["id"]} type="button" onClick={lambda (e: MouseEvent) { persona = p["id"]; }} className={"flex flex-col gap-0.5 rounded-md pt-2 pb-2 pl-3 pr-3 text-left transition-colors " + ("bg-foreground text-background" if persona == p["id"] else "hover:bg-background")}>
                             <span className="kicker">{p["label"]}</span>
                             <span className={"text-xs " + ("text-background/70" if persona == p["id"] else "text-muted-foreground")}>{p["hint"]}</span>
                         </button>
@@ -103,17 +94,17 @@ def:pub MondayPage() -> JsxElement {
         </div>
 
         {#* profile + audio strip *#}
-        <div className="rule-double flex flex-col gap-4 border-t border-foreground pt-4 pb-4 md:flex-row md:items-center md:justify-between">
+        <div className="flex flex-col gap-4 border-t border-b pt-4 pb-4 md:flex-row md:items-center md:justify-between">
             <div className="flex flex-wrap items-center gap-2">
                 {if brief is None {
                     <Skeleton className="h-6 w-64" />
                     skip;
                 }}
-                {brief and <span className="font-display text-lg font-bold">{brief.profile_name}</span>}
-                {brief and <span className="kicker border pt-0.5 pb-0.5 pl-2 pr-2">{"Home: " + brief.home}</span>}
-                {brief and <span className="kicker border pt-0.5 pb-0.5 pl-2 pr-2">{"Commute: " + brief.commute}</span>}
+                {brief and <span className="mr-1 text-sm font-semibold">{brief.profile_name}</span>}
+                {brief and <span className="rounded-full bg-muted pt-0.5 pb-0.5 pl-2.5 pr-2.5 text-xs">{"Home: " + brief.home}</span>}
+                {brief and <span className="rounded-full bg-muted pt-0.5 pb-0.5 pl-2.5 pr-2.5 text-xs">{"Commute: " + brief.commute}</span>}
                 {for i in (brief.interests if brief else []) {
-                    <span key={i} className="kicker border border-primary/40 pt-0.5 pb-0.5 pl-2 pr-2 text-primary">{i}</span>
+                    <span key={i} className="rounded-full border pt-0.5 pb-0.5 pl-2.5 pr-2.5 text-xs capitalize text-muted-foreground">{i}</span>
                 }}
             </div>
             <div className="flex flex-wrap items-center gap-2">
@@ -121,7 +112,7 @@ def:pub MondayPage() -> JsxElement {
                     <HugeiconsIcon icon={SparklesIcon} strokeWidth={2} />
                     {"Writing..." if loading else "Regenerate brief"}
                 </Button>
-                <Button onClick={lambda (e: MouseEvent) { play_audio(); }} disabled={not brief} className="shadow-[3px_3px_0_var(--foreground)]">
+                <Button onClick={lambda (e: MouseEvent) { play_audio(); }} disabled={not brief}>
                     <HugeiconsIcon icon={(StopIcon if speaking else PlayIcon)} strokeWidth={2} />
                     {"Stop" if speaking else "Play 60-second brief"}
                 </Button>
@@ -135,12 +126,12 @@ def:pub MondayPage() -> JsxElement {
 
         {#* lead story: spoken summary *#}
         {brief and <div className="grid gap-6 lg:grid-cols-[2fr_1fr]">
-            <article className="border border-foreground bg-card pt-6 pb-6 pl-6 pr-6 shadow-[5px_5px_0_var(--foreground)]">
+            <article className="rounded-xl border bg-card pt-6 pb-6 pl-6 pr-6 shadow-sm">
                 <div className="flex items-center justify-between gap-3">
-                    <span className="kicker text-primary">{"Lead · Your Monday, read aloud"}</span>
-                    <span className="kicker text-muted-foreground">{"Written by AI" if brief.ai else "Assembled by the Editor walker"}</span>
+                    <span className="text-xs font-medium">{"Your brief"}</span>
+                    <span className="text-xs text-muted-foreground">{"Written by AI" if brief.ai else "Assembled by the Editor walker"}</span>
                 </div>
-                <p className="mt-3 font-sans text-lg leading-relaxed first-letter:float-left first-letter:mr-2 first-letter:font-display first-letter:text-6xl first-letter:font-black first-letter:leading-[0.8] first-letter:text-primary">
+                <p className="mt-3 text-base leading-relaxed text-foreground/90">
                     {brief.summary}
                 </p>
             </article>
@@ -174,15 +165,15 @@ def:pub MondayPage() -> JsxElement {
         </div>}
         {brief and len(brief.items) > 0 and <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
             {for (idx, it) in enumerate(brief.items if brief else []) {
-                <article key={it.key} className={"group flex flex-col gap-3 border bg-card pt-5 pb-4 pl-5 pr-5 transition-all hover:-translate-y-0.5 hover:border-foreground hover:shadow-[4px_4px_0_var(--foreground)] " + ("md:col-span-2 lg:col-span-1 lg:row-span-2" if idx == 0 else "")}>
+                <article key={it.key} className="group flex flex-col gap-3 rounded-xl border bg-card pt-5 pb-4 pl-5 pr-5 transition-shadow hover:shadow-md">
                     <div className="flex items-start justify-between gap-3">
-                        <span className="font-display text-5xl font-black leading-none text-primary/80 tabular-nums">{str(idx + 1)}</span>
+                        <span className="text-sm font-medium tabular-nums text-muted-foreground">{str(idx + 1).zfill(2)}</span>
                         <span className="kicker flex items-center gap-1.5" style={{"color": kind_color(it.kind)}}>
                             <span className="size-2 rounded-full" style={{"backgroundColor": kind_color(it.kind)}} />
                             {kind_label(it.kind)}
                         </span>
                     </div>
-                    <h3 className={"font-display font-bold leading-tight " + ("text-2xl" if idx == 0 else "text-xl")}>{it.name}</h3>
+                    <h3 className="text-base font-semibold leading-snug">{it.name}</h3>
                     <span className="kicker text-muted-foreground">{it.when}</span>
                     <div className="flex flex-col gap-2 text-sm">
                         <p><span className="kicker mr-1 text-primary">{"Why"}</span>{it.why}</p>

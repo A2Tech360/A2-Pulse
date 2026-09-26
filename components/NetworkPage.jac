@@ -108,7 +108,7 @@ def:pub NetworkPage(filters: dict, onFilters: Callable[[dict], None]) -> JsxElem
                 <Button variant="outline" size="sm" onClick={lambda (e: MouseEvent) { load_graph(); }}>{"Retry"}</Button>
             </div>}
             {not loading and not error and len(nodes) <= 1 and <div className="absolute inset-0 flex items-center justify-center pl-6 pr-6">
-                <div className="max-w-sm border border-foreground bg-card pt-6 pb-6 pl-6 pr-6 text-center shadow-[4px_4px_0_var(--foreground)]">
+                <div className="max-w-sm rounded-xl border bg-card pt-6 pb-6 pl-6 pr-6 text-center shadow-sm">
                     <div className="mx-auto mb-3 flex size-10 items-center justify-center bg-primary/10 text-primary">
                         <HugeiconsIcon icon={Analytics01Icon} strokeWidth={2} className="size-5" />
                     </div>
@@ -124,7 +124,7 @@ def:pub NetworkPage(filters: dict, onFilters: Callable[[dict], None]) -> JsxElem
                             key={e.source + e.target}
                             x1={pos[e.source].x} y1={pos[e.source].y}
                             x2={pos[e.target].x} y2={pos[e.target].y}
-                            stroke={("#9b1c2e" if focus and (e.source == focus or e.target == focus) else "#6b5e55")}
+                            stroke={("#1c1917" if focus and (e.source == focus or e.target == focus) else "#a8a29e")}
                             strokeOpacity={(0.9 if focus and (e.source == focus or e.target == focus) else 0.28)}
                             strokeWidth={(1.6 if focus and (e.source == focus or e.target == focus) else 0.9)}
                         />
@@ -147,17 +147,17 @@ def:pub NetworkPage(filters: dict, onFilters: Callable[[dict], None]) -> JsxElem
                             r={(18 if n.depth == 0 else (11 if n.depth == 1 else 7))}
                             fill={kind_color(n.kind)}
                             fillOpacity={(1.0 if n.depth < 2 else 0.78)}
-                            stroke={("#1f1a17" if n.id == selectedId else "#faf6ee")}
+                            stroke={("#1c1917" if n.id == selectedId else "#ffffff")}
                             strokeWidth={(3 if n.id == selectedId else 2)}
                         />
                         <text
                             y={(40 if n.depth == 0 else (26 if n.depth == 1 else 20))}
                             textAnchor="middle"
-                            fontFamily="Fraunces, Georgia, serif"
-                            fontWeight={(800 if n.depth == 0 else (600 if n.depth == 1 else 500))}
-                            fontSize={(24 if n.depth == 0 else (15 if n.depth == 1 else 12))}
-                            fill={("#1f1a17" if n.depth < 2 else kind_color(n.kind))}
-                            stroke="#f7f1e4"
+                            fontFamily="Geist Variable, system-ui, sans-serif"
+                            fontWeight={(600 if n.depth == 0 else 500)}
+                            fontSize={(18 if n.depth == 0 else (13 if n.depth == 1 else 11))}
+                            fill={("#1c1917" if n.depth < 2 else "#78716c")}
+                            stroke="#ffffff"
                             strokeWidth={4}
                             paintOrder="stroke"
                         >
@@ -168,17 +168,9 @@ def:pub NetworkPage(filters: dict, onFilters: Callable[[dict], None]) -> JsxElem
             </svg>
 
             {#* editorial overlay, like a front page headline *#}
-            <div className="pointer-events-none relative z-10 flex flex-col gap-4 pt-8 pb-6 pl-5 pr-5 sm:pl-10 lg:max-w-xl">
-                <div className="flex items-center gap-3">
-                    <span className="h-px w-10 bg-primary" />
-                    <span className="kicker text-primary">{"Live · The Network"}</span>
-                </div>
-                <h2 className="font-display text-4xl font-black leading-[0.95] tracking-tight sm:text-5xl md:text-6xl">
-                    {"Everything's connected. "}<span className="text-primary">{"We walk the web."}</span>
-                </h2>
-                <p className="max-w-md text-base leading-relaxed text-foreground/80">
-                    {"Every concert, club, closure and council vote in Ann Arbor, strung together. Pick a thread and watch what's tied to it fan out."}
-                </p>
+            <div className="pointer-events-none relative z-10 flex flex-col gap-3 pt-6 pb-6 pl-5 pr-5 sm:pl-8 lg:max-w-md">
+                <h2 className="text-2xl font-semibold tracking-tight">{"Explore Ann Arbor"}</h2>
+                <p className="text-sm text-muted-foreground">{"Events, clubs, closures and council items, connected. Pick a thread to see what's tied to it."}</p>
                 <div className="pointer-events-auto flex flex-col gap-2">
                     <div className="relative max-w-md">
                         <HugeiconsIcon icon={Search01Icon} strokeWidth={2} className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
@@ -186,9 +178,9 @@ def:pub NetworkPage(filters: dict, onFilters: Callable[[dict], None]) -> JsxElem
                             value={query}
                             onChange={lambda (e: ChangeEvent) { run_search(e.target.value); }}
                             placeholder="Search a club, venue, category or closure"
-                            className="h-11 border-foreground bg-card pl-9 shadow-[3px_3px_0_var(--foreground)]"
+                            className="h-10 bg-card pl-9 shadow-sm"
                         />
-                        {len(results) > 0 and <div className="absolute left-0 right-0 top-12 z-30 max-h-72 overflow-y-auto border border-foreground bg-card shadow-[4px_4px_0_var(--foreground)]">
+                        {len(results) > 0 and <div className="absolute left-0 right-0 top-11 z-30 max-h-72 overflow-y-auto rounded-lg border bg-card shadow-lg">
                             {for r in results {
                                 <button key={r.id} type="button" onClick={lambda (e: MouseEvent) { recenter(r.key, r.name); }} className="flex w-full items-center gap-3 border-b pt-2 pb-2 pl-3 pr-3 text-left last:border-b-0 hover:bg-muted">
                                     <span className="size-2.5 shrink-0 rounded-full" style={{"backgroundColor": kind_color(r.kind)}} />
@@ -200,7 +192,7 @@ def:pub NetworkPage(filters: dict, onFilters: Callable[[dict], None]) -> JsxElem
                     </div>
                     <div className="flex flex-wrap gap-1.5">
                         {for s in STARTERS {
-                            <button key={s["key"]} type="button" onClick={lambda (e: MouseEvent) { recenter(s["key"], s["name"]); }} className={"kicker border pt-1 pb-1 pl-2 pr-2 capitalize transition-colors " + ("border-primary bg-primary text-primary-foreground" if centerKey == s["key"] else "border-border bg-card/80 hover:border-foreground")}>
+                            <button key={s["key"]} type="button" onClick={lambda (e: MouseEvent) { recenter(s["key"], s["name"]); }} className={"rounded-full border pt-1 pb-1 pl-3 pr-3 text-xs font-medium capitalize transition-colors " + ("border-foreground bg-foreground text-background" if centerKey == s["key"] else "bg-card text-muted-foreground hover:text-foreground")}>
                                 {s["name"]}
                             </button>
                         }}
@@ -209,7 +201,7 @@ def:pub NetworkPage(filters: dict, onFilters: Callable[[dict], None]) -> JsxElem
             </div>
 
             {#* legend + stats, bottom-left *#}
-            <div className="absolute bottom-4 left-4 z-10 flex flex-wrap items-center gap-3 border bg-card/90 pt-2 pb-2 pl-3 pr-3 backdrop-blur sm:left-10">
+            <div className="absolute bottom-4 left-4 z-10 flex flex-wrap items-center gap-3 rounded-lg border bg-card/90 pt-2 pb-2 pl-3 pr-3 backdrop-blur sm:left-8">
                 {for k in LEGEND {
                     <span key={k} className="kicker flex items-center gap-1.5 text-muted-foreground">
                         <span className="size-2.5 rounded-full" style={{"backgroundColor": kind_color(k)}} />
@@ -221,7 +213,7 @@ def:pub NetworkPage(filters: dict, onFilters: Callable[[dict], None]) -> JsxElem
         </div>
 
         {#* ---------------- side column: hops, filters, dossier ---------------- *#}
-        <aside className="relative z-20 flex w-full flex-col gap-5 border-t bg-card/85 pt-5 pb-6 pl-5 pr-5 backdrop-blur lg:w-[380px] lg:border-l lg:border-t-0">
+        <aside className="relative z-20 flex w-full flex-col gap-5 border-t bg-background pt-6 pb-6 pl-6 pr-6 lg:w-[360px] lg:border-l lg:border-t-0">
             <div className="flex flex-col gap-3">
                 <div className="flex items-baseline justify-between">
                     <span className="kicker text-muted-foreground">{"Center of the walk"}</span>

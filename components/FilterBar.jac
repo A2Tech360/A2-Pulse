@@ -10,8 +10,8 @@ import from .pulse_theme { all_categories, kind_options, default_filters, kind_c
 sv import from ..services.pulse { converse_query, FilterSpec }
 
 def:pub FilterChip(label: str, active: bool, onToggle: Callable[[], None], color: str = "") -> JsxElement {
-    base = "kicker inline-flex h-7 items-center gap-1.5 border pl-2.5 pr-2.5 transition-colors ";
-    tone = "border-foreground bg-foreground text-background" if active else "border-border bg-card/70 text-muted-foreground hover:border-foreground hover:text-foreground";
+    base = "inline-flex h-7 items-center gap-1.5 rounded-full border pl-3 pr-3 text-xs font-medium capitalize transition-colors ";
+    tone = "border-foreground bg-foreground text-background" if active else "bg-card text-muted-foreground hover:text-foreground";
     return <button type="button" onClick={lambda (e: MouseEvent) { onToggle(); }} className={base + tone}>
         {color and <span className="size-2 rounded-full" style={{"backgroundColor": color}} />}
         {label}
@@ -87,7 +87,7 @@ def:pub FilterBar(filters: dict, onChange: Callable[[dict], None], showDistance:
     active_count = len(cats) + len(kinds) + (1 if price != "any" else 0) + (1 if time != "week" else 0) + (1 if distance > 0.0 else 0);
 
     return <div className="flex flex-col gap-3">
-        <div className="flex items-center gap-2 border border-foreground bg-card pt-1 pb-1 pl-3 pr-1 shadow-[3px_3px_0_var(--foreground)] focus-within:ring-2 focus-within:ring-ring/40">
+        <div className="flex items-center gap-2 rounded-lg border bg-card pt-1 pb-1 pl-3 pr-1 shadow-sm focus-within:ring-2 focus-within:ring-ring/40">
             <HugeiconsIcon icon={SparklesIcon} strokeWidth={2} className="size-4 shrink-0 text-primary" />
             <Input
                 value={draft}
@@ -130,7 +130,7 @@ def:pub FilterBar(filters: dict, onChange: Callable[[dict], None], showDistance:
             </div>
         </div>
 
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+        <div className="flex flex-col gap-3">
             <div className="flex flex-col gap-2">
                 <span className="text-xs font-medium text-muted-foreground">{"Price"}</span>
                 <ToggleGroup type="single" variant="outline" size="sm" value={price} onValueChange={lambda (v: str) { patch("price", v or "any"); }}>

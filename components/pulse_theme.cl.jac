@@ -13,12 +13,12 @@ glob KIND_OPTIONS: list[dict] = [
 ];
 
 glob KIND_COLORS: dict[str, str] = {
-    "event": "#9b1c2e",
-    "venue": "#3f5f8a",
-    "organizer": "#b7791f",
-    "category": "#1f1a17",
-    "alert": "#d9480f",
-    "civic": "#2f7d5b",
+    "event": "#e11d48",
+    "venue": "#6366f1",
+    "organizer": "#f59e0b",
+    "category": "#1c1917",
+    "alert": "#f97316",
+    "civic": "#10b981",
     "place": "#7c6f64",
     "source": "#7c6f64"
 };

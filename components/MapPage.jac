@@ -1,18 +1,48 @@
-"""Map tab: the same graph truth as pins and closure lines (MapSnapshot walker)."""
+"""Map tab: the same graph truth as an interactive Google Map (MapSnapshot walker)."""
 
-import "leaflet/dist/leaflet.css";
-import from "leaflet" { default as L }
 import from react { useEffect }
 import from "@hugeicons/react" { HugeiconsIcon }
-import from "@hugeicons/core-free-icons" { ArrowUpRight01Icon, Location01Icon }
+import from "@hugeicons/core-free-icons" { Location01Icon, Settings01Icon }
 import from .ui.skeleton { Skeleton }
 import from .ui.button { Button }
 import from .FilterBar { FilterBar }
 import from .pulse_theme { kind_color, kind_label }
-sv import from ..services.pulse { MapSnapshot, MapItem }
+sv import from ..services.pulse { MapSnapshot, MapItem, maps_config }
 
 glob CAMPUS_LAT: float = 42.2780;
 glob CAMPUS_LNG: float = -83.7382;
+
+# Quiet, minimal basemap: muted land, no POI clutter.
+glob MAP_STYLE: list[dict] = [
+    {"elementType": "geometry", "stylers": [{"color": "#f5f5f4"}]},
+    {"elementType": "labels.text.fill", "stylers": [{"color": "#78716c"}]},
+    {"elementType": "labels.text.stroke", "stylers": [{"color": "#ffffff"}]},
+    {"featureType": "poi", "stylers": [{"visibility": "off"}]},
+    {"featureType": "transit", "stylers": [{"visibility": "simplified"}]},
+    {"featureType": "road", "elementType": "geometry", "stylers": [{"color": "#ffffff"}]},
+    {"featureType": "road.highway", "elementType": "geometry", "stylers": [{"color": "#e7e5e4"}]},
+    {"featureType": "water", "elementType": "geometry", "stylers": [{"color": "#dbe4ea"}]}
+];
+
+def load_google_maps(key: str, on_ready: Callable[[], None]) {
+    w: any = window;
+    if w.google and w.google.maps {
+        on_ready();
+        return;
+    }
+    existing: any = document.getElementById("gmaps-js");
+    if existing {
+        existing.addEventListener("load", lambda { on_ready(); });
+        return;
+    }
+    s: any = document.createElement("script");
+    s.id = "gmaps-js";
+    s.src = "https://maps.googleapis.com/maps/api/js?key=" + key + "&v=weekly";
+    s.async = True;
+    s.onload = lambda { on_ready(); };
+    doc: any = document;
+    doc.head.appendChild(s);
+}
 
 def popup_html(it: MapItem) -> str {
     price = "";
@@ -22,14 +52,15 @@ def popup_html(it: MapItem) -> str {
     dir_url = f"https://www.google.com/maps/dir/?api=1&destination={it.lat},{it.lng}";
     src = "";
     if it.source_url {
-        src = f"<a href='{it.source_url}' target='_blank' rel='noreferrer' style='color:#9b1c2e'>Source: {it.source_name}</a> &middot; ";
+        src = f"<a href='{it.source_url}' target='_blank' rel='noreferrer' style='color:#57534e'>{it.source_name}</a> &middot; ";
     }
     return (
-        f"<div style='min-width:210px'><div style='font:500 10px IBM Plex Mono,monospace;letter-spacing:.16em;text-transform:uppercase;color:{kind_color(it.kind)}'>{kind_label(it.kind)}{price}</div>"
-        + f"<div style='font:700 17px Fraunces,Georgia,serif;margin:3px 0 4px'>{it.name}</div>"
-        + f"<div style='font-size:12.5px;line-height:1.45'>{it.when}{(' · ' + it.venue) if it.venue else ''}</div>"
-        + f"<div style='font-size:12px;color:#6b5e55;margin:6px 0'>{it.desc}</div>"
-        + f"<div style='font:500 10.5px IBM Plex Mono,monospace;letter-spacing:.08em;text-transform:uppercase'>{src}<a href='{dir_url}' target='_blank' rel='noreferrer' style='color:#1f1a17'>Get directions</a></div></div>"
+        f"<div style='max-width:240px;font-family:Geist Variable,system-ui,sans-serif'>"
+        + f"<div style='font-size:11px;color:{kind_color(it.kind)};font-weight:600'>{kind_label(it.kind)}{price}</div>"
+        + f"<div style='font-size:15px;font-weight:600;margin:2px 0 4px;color:#1c1917'>{it.name}</div>"
+        + f"<div style='font-size:12px;color:#57534e'>{it.when}{(' · ' + it.venue) if it.venue else ''}</div>"
+        + f"<div style='font-size:12px;color:#78716c;margin:6px 0'>{it.desc}</div>"
+        + f"<div style='font-size:12px'>{src}<a href='{dir_url}' target='_blank' rel='noreferrer' style='color:#1c1917;font-weight:600'>Directions</a></div></div>"
     );
 }
 
@@ -38,9 +69,22 @@ def:pub MapPage(filters: dict, onFilters: Callable[[dict], None]) -> JsxElement 
         loading: bool = True,
         error: str = "",
         focusId: str = "",
+        apiKey: str = "",
+        keyChecked: bool = False,
+        mapsReady: bool = False,
         mapEl: Ref[HTMLDivElement] = Ref(),
         mapRef: Ref[any] = Ref(None),
-        layerRef: Ref[any] = Ref(None);
+        overlaysRef: Ref[any] = Ref(None),
+        infoRef: Ref[any] = Ref(None);
+
+    async can with entry {
+        cfg = await maps_config();
+        apiKey = cfg["key"] or "";
+        keyChecked = True;
+        if apiKey {
+            load_google_maps(apiKey, lambda { mapsReady = True; });
+        }
+    }
 
     async def load_pins -> None {
         loading = True;
@@ -62,93 +106,115 @@ def:pub MapPage(filters: dict, onFilters: Callable[[dict], None]) -> JsxElement 
         load_pins();
     }
 
-    # create the Leaflet map once; tear it down on unmount
+    # create the Google map once the script is ready
     useEffect(lambda {
-        if mapEl.current and not mapRef.current {
-            m = L.map(mapEl.current, {"zoomControl": True, "scrollWheelZoom": True}).setView([CAMPUS_LAT, CAMPUS_LNG], 14);
-            L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {"maxZoom": 19, "attribution": "&copy; OpenStreetMap contributors"}).addTo(m);
-            mapRef.current = m;
-            layerRef.current = L.layerGroup().addTo(m);
+        w: any = window;
+        if mapsReady and mapEl.current and not mapRef.current {
+            gm: any = w.google.maps;
+            mapRef.current = new(gm.Map, mapEl.current, {
+                "center": {"lat": CAMPUS_LAT, "lng": CAMPUS_LNG},
+                "zoom": 14,
+                "styles": MAP_STYLE,
+                "disableDefaultUI": True,
+                "zoomControl": True,
+                "fullscreenControl": True,
+                "gestureHandling": "greedy"
+            });
+            infoRef.current = new(gm.InfoWindow);
+            overlaysRef.current = [];
         }
         return lambda {
-            if mapRef.current {
-                mapRef.current.remove();
-                mapRef.current = None;
-                layerRef.current = None;
+            if overlaysRef.current {
+                for o in overlaysRef.current { o.setMap(None); }
             }
+            mapRef.current = None;
         };
-    }, []);
+    }, [mapsReady]);
 
-    # redraw pins, closure lines and the radius circle whenever data changes
+    # redraw markers, closure lines and radius circle on data change
     useEffect(lambda {
-        layer: any = layerRef.current;
-        if not layer {
+        w: any = window;
+        m: any = mapRef.current;
+        if not m or not mapsReady {
             return;
         }
-        layer.clearLayers();
+        gm: any = w.google.maps;
+        old: list[any] = overlaysRef.current or [];
+        for o in old { o.setMap(None); }
+        fresh: list[any] = [];
+        info: any = infoRef.current;
         dist: float = filters["distance"] or 0.0;
-        L.circleMarker([CAMPUS_LAT, CAMPUS_LNG], {"radius": 7, "color": "#faf6ee", "weight": 3, "fillColor": "#1f1a17", "fillOpacity": 1}).bindTooltip("You are here (Central Campus)").addTo(layer);
+        fresh.append(new(gm.Marker, {
+            "position": {"lat": CAMPUS_LAT, "lng": CAMPUS_LNG}, "map": m, "title": "Central Campus",
+            "icon": {"path": gm.SymbolPath.CIRCLE, "scale": 6, "fillColor": "#1c1917", "fillOpacity": 1, "strokeColor": "#ffffff", "strokeWeight": 3}
+        }));
         if dist > 0.0 {
-            L.circle([CAMPUS_LAT, CAMPUS_LNG], {"radius": dist * 1609.34, "color": "#9b1c2e", "weight": 1.5, "dashArray": "5 6", "fillColor": "#9b1c2e", "fillOpacity": 0.05}).addTo(layer);
+            fresh.append(new(gm.Circle, {
+                "map": m, "center": {"lat": CAMPUS_LAT, "lng": CAMPUS_LNG}, "radius": dist * 1609.34,
+                "strokeColor": "#1c1917", "strokeOpacity": 0.35, "strokeWeight": 1, "fillColor": "#1c1917", "fillOpacity": 0.04
+            }));
         }
         for it in items {
             col = kind_color(it.kind);
+            html = popup_html(it);
             if len(it.path) > 1 {
-                L.polyline(it.path, {"color": col, "weight": 6, "opacity": 0.75, "dashArray": "10 8"}).bindPopup(popup_html(it)).addTo(layer);
+                line: any = new(gm.Polyline, {
+                    "map": m, "path": [{"lat": p[0], "lng": p[1]} for p in it.path],
+                    "strokeColor": col, "strokeOpacity": 0.8, "strokeWeight": 5
+                });
+                line.addListener("click", lambda (ev: any) { info.setContent(html); info.setPosition(ev.latLng); info.open(m); });
+                fresh.append(line);
             }
-            mk = L.circleMarker([it.lat, it.lng], {
-                "radius": (11 if it.id == focusId else 8),
-                "color": ("#1f1a17" if it.id == focusId else "#faf6ee"),
-                "weight": 2.5,
-                "fillColor": col,
-                "fillOpacity": 0.95
-            }).bindPopup(popup_html(it)).addTo(layer);
+            mk: any = new(gm.Marker, {
+                "position": {"lat": it.lat, "lng": it.lng}, "map": m, "title": it.name,
+                "icon": {"path": gm.SymbolPath.CIRCLE, "scale": (10 if it.id == focusId else 7), "fillColor": col, "fillOpacity": 1, "strokeColor": "#ffffff", "strokeWeight": 2}
+            });
+            mk.addListener("click", lambda { focusId = it.id; info.setContent(html); info.open(m, mk); });
             if it.id == focusId {
-                mk.openPopup();
+                info.setContent(html);
+                info.open(m, mk);
             }
+            fresh.append(mk);
         }
-    }, [items, focusId, filters]);
+        overlaysRef.current = fresh;
+    }, [items, focusId, filters, mapsReady]);
 
     def focus_item(it: MapItem) {
         focusId = it.id;
         if mapRef.current {
-            mapRef.current.flyTo([it.lat, it.lng], 16, {"duration": 0.6});
+            mapRef.current.panTo({"lat": it.lat, "lng": it.lng});
+            mapRef.current.setZoom(16);
         }
     }
 
-    counts: dict[str, int] = {"event": 0, "organizer": 0, "alert": 0, "civic": 0};
-    for it in items {
-        counts[it.kind] = counts[it.kind] + 1;
-    }
-
     return <div className="flex flex-1 flex-col lg:flex-row">
-        <div className="relative min-h-[60svh] flex-1 lg:min-h-[calc(100svh-230px)]">
-            <div ref={mapEl} className="absolute inset-0 z-0" />
-            <div className="pointer-events-none absolute left-4 top-4 z-[500] flex max-w-sm flex-col gap-2 border border-foreground bg-card/95 pt-3 pb-3 pl-4 pr-4 shadow-[4px_4px_0_var(--foreground)] sm:left-6">
-                <div className="flex items-center gap-2">
-                    <span className="h-px w-8 bg-primary" />
-                    <span className="kicker text-primary">{"Live · The Map"}</span>
+        <div className="relative min-h-[60svh] flex-1 bg-muted lg:min-h-[calc(100svh-120px)]">
+            <div ref={mapEl} className="absolute inset-0" />
+            {keyChecked and not apiKey and <div className="absolute inset-0 flex items-center justify-center pt-6 pb-6 pl-6 pr-6">
+                <div className="flex max-w-md flex-col gap-3 rounded-xl border bg-card pt-6 pb-6 pl-6 pr-6 shadow-sm">
+                    <div className="flex size-9 items-center justify-center rounded-lg bg-muted">
+                        <HugeiconsIcon icon={Settings01Icon} strokeWidth={2} className="size-4" />
+                    </div>
+                    <h3 className="text-lg font-semibold tracking-tight">{"Connect Google Maps"}</h3>
+                    <ol className="flex list-decimal flex-col gap-1.5 pl-4 text-sm text-muted-foreground">
+                        <li>{"In Google Cloud Console, enable the Maps JavaScript API and create an API key."}</li>
+                        <li>{"Open Settings (gear icon) > Environment and add GOOGLE_MAPS_API_KEY."}</li>
+                        <li>{"Restart the preview. The map loads here."}</li>
+                    </ol>
+                    <p className="text-xs text-muted-foreground">{"The list on the right works without a key."}</p>
                 </div>
-                <h2 className="font-display text-2xl font-black leading-tight sm:text-3xl">{"Same city. "}<span className="text-primary">{"Now with streets."}</span></h2>
-                <div className="flex flex-wrap gap-3">
-                    <span className="kicker flex items-center gap-1.5"><span className="size-2.5 rounded-full" style={{"backgroundColor": kind_color("event")}} />{f"{counts['event']} events"}</span>
-                    <span className="kicker flex items-center gap-1.5"><span className="size-2.5 rounded-full" style={{"backgroundColor": kind_color("organizer")}} />{f"{counts['organizer']} clubs"}</span>
-                    <span className="kicker flex items-center gap-1.5"><span className="size-2.5 rounded-full" style={{"backgroundColor": kind_color("alert")}} />{f"{counts['alert']} closures"}</span>
-                    <span className="kicker flex items-center gap-1.5"><span className="size-2.5 rounded-full" style={{"backgroundColor": kind_color("civic")}} />{f"{counts['civic']} civic"}</span>
-                </div>
-            </div>
-            {loading and <div className="absolute bottom-4 left-4 z-[500] kicker border bg-card pt-1.5 pb-1.5 pl-3 pr-3 sm:left-6">{"Refreshing pins..."}</div>}
+            </div>}
+            {apiKey and not mapsReady and <div className="absolute inset-0 flex items-center justify-center">
+                <span className="text-sm text-muted-foreground">{"Loading Google Maps..."}</span>
+            </div>}
         </div>
 
-        <aside className="flex w-full flex-col gap-5 border-t bg-card/85 pt-5 pb-6 pl-5 pr-5 backdrop-blur lg:w-[400px] lg:border-l lg:border-t-0">
-            <div className="flex flex-col gap-1">
-                <span className="kicker text-muted-foreground">{"Filters stay in sync with the Network"}</span>
-            </div>
+        <aside className="flex w-full flex-col gap-6 border-t bg-background pt-6 pb-6 pl-6 pr-6 lg:w-[380px] lg:border-l lg:border-t-0">
             <FilterBar filters={filters} onChange={onFilters} />
-            <div className="flex flex-col gap-2 border-t pt-4">
+            <div className="flex flex-col gap-2 border-t pt-5">
                 <div className="flex items-baseline justify-between">
-                    <h3 className="font-display text-xl font-bold">{"On the map"}</h3>
-                    <span className="kicker tabular-nums text-muted-foreground">{f"{len(items)} items"}</span>
+                    <h3 className="text-sm font-semibold">{"On the map"}</h3>
+                    <span className="text-xs tabular-nums text-muted-foreground">{f"{len(items)} items"}</span>
                 </div>
                 {error and <div className="flex items-center gap-3">
                     <p className="text-sm text-destructive">{error}</p>
@@ -156,31 +222,29 @@ def:pub MapPage(filters: dict, onFilters: Callable[[dict], None]) -> JsxElement 
                 </div>}
                 {if loading and len(items) == 0 {
                     <div className="flex flex-col gap-2">
-                        <Skeleton className="h-14 w-full" />
-                        <Skeleton className="h-14 w-full" />
-                        <Skeleton className="h-14 w-full" />
+                        <Skeleton className="h-12 w-full" />
+                        <Skeleton className="h-12 w-full" />
+                        <Skeleton className="h-12 w-full" />
                     </div>
                     skip;
                 }}
                 {if not loading and len(items) == 0 and not error {
-                    <div className="flex flex-col items-center gap-2 border border-dashed pt-8 pb-8 text-center">
-                        <div className="flex size-10 items-center justify-center bg-primary/10 text-primary">
-                            <HugeiconsIcon icon={Location01Icon} strokeWidth={2} className="size-5" />
-                        </div>
-                        <p className="font-display text-lg font-bold">{"No pins match"}</p>
-                        <p className="text-sm text-muted-foreground">{"Widen the distance or clear a filter."}</p>
+                    <div className="flex flex-col items-center gap-2 rounded-lg border border-dashed pt-8 pb-8 text-center">
+                        <HugeiconsIcon icon={Location01Icon} strokeWidth={2} className="size-5 text-muted-foreground" />
+                        <p className="text-sm font-medium">{"No places match"}</p>
+                        <p className="text-xs text-muted-foreground">{"Widen the distance or clear a filter."}</p>
                     </div>
                     skip;
                 }}
-                <div className="flex max-h-[46svh] flex-col overflow-y-auto">
+                <div className="-ml-2 -mr-2 flex max-h-[46svh] flex-col overflow-y-auto">
                     {for it in items {
-                        <button key={it.id} type="button" onClick={lambda (e: MouseEvent) { focus_item(it); }} className={"flex items-start gap-3 border-b pt-3 pb-3 text-left transition-colors hover:bg-muted/60 " + ("bg-muted" if it.id == focusId else "")}>
-                            <span className="mt-1.5 size-2.5 shrink-0 rounded-full" style={{"backgroundColor": kind_color(it.kind)}} />
-                            <span className="flex min-w-0 flex-1 flex-col gap-0.5">
-                                <span className="truncate font-display text-base font-semibold leading-tight">{it.name}</span>
+                        <button key={it.id} type="button" onClick={lambda (e: MouseEvent) { focus_item(it); }} className={"flex items-start gap-3 rounded-md pt-2.5 pb-2.5 pl-2 pr-2 text-left transition-colors hover:bg-muted " + ("bg-muted" if it.id == focusId else "")}>
+                            <span className="mt-1.5 size-2 shrink-0 rounded-full" style={{"backgroundColor": kind_color(it.kind)}} />
+                            <span className="flex min-w-0 flex-1 flex-col">
+                                <span className="truncate text-sm font-medium">{it.name}</span>
                                 <span className="truncate text-xs text-muted-foreground">{it.when + ((" · " + it.venue) if it.venue else "")}</span>
                             </span>
-                            <span className="kicker shrink-0 tabular-nums text-muted-foreground">{f"{it.dist:.1f} mi"}</span>
+                            <span className="shrink-0 text-xs tabular-nums text-muted-foreground">{f"{it.dist:.1f} mi"}</span>
                         </button>
                     }}
                 </div>

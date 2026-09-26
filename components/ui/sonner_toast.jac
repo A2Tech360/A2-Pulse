@@ -6,7 +6,7 @@ def:pub Toaster(props: any) -> JsxElement {
         <SonnerPrimitive
             theme={theme}
             className="toaster group"
-            toastOptions={{"classNames": {"toast": "rounded-none"}}}
+            toastOptions={{"classNames": {"toast": "rounded-2xl"}}}
             style={{
                 "--normal-bg": "var(--popover)",
                 "--normal-text": "var(--popover-foreground)",

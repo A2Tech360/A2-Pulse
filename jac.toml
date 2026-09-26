@@ -12,11 +12,11 @@ api_key = "${OPENAI_API_KEY:-}"
 
 
 [jac-shadcn]
-style = "lyra"
+style = "nova"
 baseColor = "stone"
-theme = "red"
+theme = "neutral"
 font = "geist"
-radius = "none"
+radius = "medium"
 menuAccent = "subtle"
 menuColor = "default"
 [dependencies]
@@ -49,7 +49,6 @@ react-resizable-panels = "4.12.4"
 recharts = "3.10.1"
 sonner = "2.0.8"
 vaul = "1.1.2"
-leaflet = "1.9.4"
 
 [dependencies.npm.dev]
 vite = "^6.4.1"

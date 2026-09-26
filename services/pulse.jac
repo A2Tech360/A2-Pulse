@@ -277,3 +277,8 @@ def:pub converse_query(text: str, prior: FilterSpec) -> FilterSpec;
 
 """Persona catalogue with profile chips."""
 def:pub list_personas() -> list[dict];
+
+"""Browser Maps JavaScript API key (a public, referrer-restricted key) from GOOGLE_MAPS_API_KEY."""
+def:pub maps_config() -> dict {
+    return {"key": os.environ.get("GOOGLE_MAPS_API_KEY", "").strip()};
+}
