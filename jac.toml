@@ -12,16 +12,16 @@ api_key = "${OPENAI_API_KEY:-}"
 
 
 [jac-shadcn]
-style = "nova"
-baseColor = "neutral"
-theme = "amber"
-font = "inter"
-radius = "default"
+style = "lyra"
+baseColor = "stone"
+theme = "red"
+font = "geist"
+radius = "none"
 menuAccent = "subtle"
 menuColor = "default"
-
 [dependencies]
 [dependencies.npm]
+"@fontsource-variable/geist" = "*"
 react = "^18.2.0"
 react-dom = "^18.2.0"
 react-router-dom = "^6.22.0"
@@ -49,6 +49,7 @@ react-resizable-panels = "4.12.4"
 recharts = "3.10.1"
 sonner = "2.0.8"
 vaul = "1.1.2"
+leaflet = "1.9.4"
 
 [dependencies.npm.dev]
 vite = "^6.4.1"
@@ -73,8 +74,8 @@ plugins = ["tailwindcss()"]
 lib_imports = ["import tailwindcss from '@tailwindcss/vite'"]
 
 [client.app_meta_data]
-title = "A blank canvas"
-description = "A minimal jac-shadcn starter with the theme wired up and nothing in the way."
+title = "A2 Pulse - Ann Arbor's Living Local Graph"
+description = "Events, closures, clubs and civic items in one living graph. Explore the network, see the map, hear your Monday brief."
 keywords = "jac, starter, shadcn, template"
 author = "Blank canvas"
 theme_color = "#dc7702"
