@@ -4,14 +4,17 @@ import from "@hugeicons/react" { HugeiconsIcon }
 import from "@hugeicons/core-free-icons" { SparklesIcon, ArrowUpRight01Icon, ThumbsUpIcon, ThumbsDownIcon, PlayIcon, StopIcon, Calendar03Icon }
 import from .ui.button { Button }
 import from .ui.skeleton { Skeleton }
+import from .ui.select { Select, SelectTrigger, SelectValue, SelectContent, SelectItem }
 import from .pulse_theme { kind_color, kind_label }
-sv import from ..services.pulse { GenerateBrief, Feedback, Brief, BriefItem, list_personas }
+sv import from ..services.pulse { GenerateBrief, Feedback, Brief, BriefItem, list_personas, speak_brief, list_voices }
 
 glob PERSONA_TABS: list[dict] = [
     {"id": "student", "label": "Student", "hint": "Jordan, North Campus, bikes"},
     {"id": "shop", "label": "Shop owner", "hint": "Maya, Main St, drives"},
     {"id": "custom", "label": "You", "hint": "Central Campus, walks"}
 ];
+
+glob VOICE_STORAGE_KEY: str = "a2pulse.voice";
 
 def:pub MondayPage() -> JsxElement {
     has persona: str = "student",
@@ -20,6 +23,9 @@ def:pub MondayPage() -> JsxElement {
         error: str = "",
         votes: dict = {},
         speaking: bool = False,
+        voice_loading: bool = False,
+        voices: list[dict] = [],
+        voice_id: str = "",
         note: str = "";
 
     async def generate -> None {
@@ -34,6 +40,30 @@ def:pub MondayPage() -> JsxElement {
             error = "The Monday crew could not finish the brief.";
         }
         loading = False;
+    }
+
+    async can with entry {
+        saved: str = "";
+        try {
+            saved = localStorage.getItem(VOICE_STORAGE_KEY) or "";
+        } except Exception {}
+        try {
+            res: dict = await list_voices();
+            loaded: list[dict] = res["voices"] or [];
+            voices = loaded;
+            ids: list[str] = [v["id"] for v in loaded];
+            voice_id = saved if saved in ids else (ids[0] if len(ids) > 0 else "");
+        } except Exception {
+            voices = [];
+        }
+    }
+
+    def choose_voice(vid: str) {
+        stop_audio();
+        voice_id = vid;
+        try {
+            localStorage.setItem(VOICE_STORAGE_KEY, vid);
+        } except Exception {}
     }
 
     can with [persona] entry {
@@ -54,24 +84,64 @@ def:pub MondayPage() -> JsxElement {
         if w.speechSynthesis {
             w.speechSynthesis.cancel();
         }
+        p: any = w.__pulsePlayer;
+        if p {
+            p.pause();
+            w.__pulsePlayer = None;
+        }
+        # Invalidate any in-flight voice request (state reads are stale inside async handlers).
+        w.__pulseVoiceReq = (w.__pulseVoiceReq or 0) + 1;
         speaking = False;
+        voice_loading = False;
     }
 
-    def play_audio() {
+    # Browser voice, used when ElevenLabs is not configured or fails.
+    def speak_fallback(text: str) {
         w: any = window;
-        if not brief or not w.speechSynthesis {
+        if not w.speechSynthesis {
             return;
         }
-        if speaking {
-            stop_audio();
-            return;
-        }
-        u: any = new(w.SpeechSynthesisUtterance, brief.summary);
+        u: any = new(w.SpeechSynthesisUtterance, text);
         u.rate = 1.03;
         u.onend = lambda { speaking = False; };
         w.speechSynthesis.cancel();
         w.speechSynthesis.speak(u);
         speaking = True;
+    }
+
+    async def play_audio -> None {
+        if not brief {
+            return;
+        }
+        if speaking or voice_loading {
+            stop_audio();
+            return;
+        }
+        w: any = window;
+        req: int = (w.__pulseVoiceReq or 0) + 1;
+        w.__pulseVoiceReq = req;
+        text: str = brief.summary;
+        voice_loading = True;
+        res: dict = {"audio": "", "error": ""};
+        try {
+            res = await speak_brief(text, voice_id);
+        } except Exception {
+            res = {"audio": "", "error": "Voice request failed"};
+        }
+        if w.__pulseVoiceReq != req {
+            return;    # stopped (or restarted) while loading
+        }
+        voice_loading = False;
+        if not res["audio"] {
+            print("ElevenLabs unavailable, using browser voice:", res["error"]);
+            speak_fallback(text);
+            return;
+        }
+        a: any = new(w.Audio, res["audio"]);
+        a.onended = lambda { speaking = False; };
+        w.__pulsePlayer = a;
+        speaking = True;
+        a.play();
     }
 
     return <div className="mx-auto flex w-full max-w-6xl flex-col gap-8 pt-8 pb-12 pl-4 pr-4 sm:pl-6 sm:pr-6 animate-in fade-in slide-in-from-bottom-2 duration-500">
@@ -107,14 +177,27 @@ def:pub MondayPage() -> JsxElement {
                     <span key={i} className="rounded-full border pt-0.5 pb-0.5 pl-2.5 pr-2.5 text-xs capitalize text-muted-foreground">{i}</span>
                 }}
             </div>
-            <div className="flex flex-wrap items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2 md:shrink-0 md:flex-nowrap">
                 <Button variant="outline" onClick={lambda (e: MouseEvent) { generate(); }} disabled={loading}>
                     <HugeiconsIcon icon={SparklesIcon} strokeWidth={2} />
                     {"Writing..." if loading else "Regenerate brief"}
                 </Button>
+                {len(voices) > 0 and <Select value={voice_id} onValueChange={lambda (v: str) { choose_voice(v); }}>
+                    <SelectTrigger className="w-32 [&_.voice-desc]:hidden" aria-label="Voice">
+                        <SelectValue placeholder="Voice" />
+                    </SelectTrigger>
+                    <SelectContent position="popper" align="end">
+                        {for v in voices {
+                            <SelectItem key={v["id"]} value={v["id"]}>
+                                {v["name"]}
+                                <span className="voice-desc ml-1.5 text-xs text-muted-foreground">{v["desc"]}</span>
+                            </SelectItem>
+                        }}
+                    </SelectContent>
+                </Select>}
                 <Button onClick={lambda (e: MouseEvent) { play_audio(); }} disabled={not brief}>
-                    <HugeiconsIcon icon={(StopIcon if speaking else PlayIcon)} strokeWidth={2} />
-                    {"Stop" if speaking else "Play 60-second brief"}
+                    <HugeiconsIcon icon={(StopIcon if speaking or voice_loading else PlayIcon)} strokeWidth={2} />
+                    {"Loading voice..." if voice_loading else ("Stop" if speaking else "Play 60-second brief")}
                 </Button>
             </div>
         </div>

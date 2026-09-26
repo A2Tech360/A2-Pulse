@@ -2,6 +2,10 @@
 
 import os;
 import math;
+import json;
+import base64;
+import urllib.request;
+import urllib.error;
 import from datetime { datetime }
 import from services.seed_data {
     SOURCES, CATEGORIES, PLACES, VENUES, ORGANIZERS, EVENTS, ALERTS, CIVIC, PERSONAS
@@ -282,3 +286,12 @@ def:pub list_personas() -> list[dict];
 def:pub maps_config() -> dict {
     return {"key": os.environ.get("GOOGLE_MAPS_API_KEY", "").strip()};
 }
+
+"""Read text aloud with ElevenLabs (ELEVENLABS_API_KEY / _VOICE_ID / _MODEL).
+voice_id picks the voice actor; empty uses ELEVENLABS_VOICE_ID or the default.
+Returns {"audio": "data:audio/mpeg;base64,...", "error": ""}; audio is "" when unavailable."""
+def:pub speak_brief(text: str, voice_id: str = "") -> dict;
+
+"""Voice actors for the brief: the account's voices when the key has voices_read,
+otherwise a curated set of ElevenLabs premade voices. Each: {id, name, desc}."""
+def:pub list_voices() -> dict;

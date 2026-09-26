@@ -628,3 +628,100 @@ impl list_personas() -> list[dict] {
     }
     return out;
 }
+
+# ---------------------------------------------------------------- voice (ElevenLabs)
+# Default voice "George" from the ElevenLabs library; override with ELEVENLABS_VOICE_ID.
+glob TTS_DEFAULT_VOICE: str = "JBFqnCBsd6RMkjVDRZzb";
+glob TTS_DEFAULT_MODEL: str = "eleven_flash_v2_5";
+glob TTS_MAX_CHARS: int = 2500;
+glob _tts_cache: dict[str, str] = {};
+glob _voices_cache: list[dict] = [];
+
+# Premade ElevenLabs voices, used when the key cannot list voices (no voices_read).
+glob PREMADE_VOICES: list[dict] = [
+    {"id": "JBFqnCBsd6RMkjVDRZzb", "name": "George", "desc": "Warm British narrator"},
+    {"id": "nPczCjzI2devNBz1zQrb", "name": "Brian", "desc": "Deep, resonant American"},
+    {"id": "onwK4e9ZLuTAKqWW03F9", "name": "Daniel", "desc": "Authoritative British newsreader"},
+    {"id": "cjVigY5qzO86Huf0OWal", "name": "Eric", "desc": "Smooth, friendly American"},
+    {"id": "TX3LPaxmHKxFdv7VOQHJ", "name": "Liam", "desc": "Energetic young American"},
+    {"id": "IKne3meq5aSn9XLyUdCD", "name": "Charlie", "desc": "Casual Australian"},
+    {"id": "SAz9YHcvj6GT2YYXdXww", "name": "River", "desc": "Relaxed, neutral"},
+    {"id": "EXAVITQu4vr4xnSDxMaL", "name": "Sarah", "desc": "Soft, reassuring American"},
+    {"id": "FGY2WhTYpPnrIDTdsKH5", "name": "Laura", "desc": "Upbeat American"},
+    {"id": "cgSgspJ2msm6clMCkdW9", "name": "Jessica", "desc": "Bright, playful American"},
+    {"id": "XrExE9yKIg1WjnnlVkGX", "name": "Matilda", "desc": "Warm, professional American"},
+    {"id": "Xb7hH8MSUJpSbSDYk0k2", "name": "Alice", "desc": "Clear British presenter"},
+    {"id": "XB0fDUnXU5powFXDhCwa", "name": "Charlotte", "desc": "Swedish-accented, calm"},
+    {"id": "pFZP5JQG7iQjIQuC4Bku", "name": "Lily", "desc": "Velvety British"}
+];
+
+impl speak_brief(text: str, voice_id: str = "") -> dict {
+    key = os.environ.get("ELEVENLABS_API_KEY", "").strip();
+    if not key {
+        return {"audio": "", "error": "ELEVENLABS_API_KEY is not set"};
+    }
+    text = text.strip()[:TTS_MAX_CHARS];
+    if not text {
+        return {"audio": "", "error": "Nothing to read"};
+    }
+    voice = voice_id.strip() or os.environ.get("ELEVENLABS_VOICE_ID", "").strip() or TTS_DEFAULT_VOICE;
+    if not voice.isalnum() or len(voice) > 64 {
+        return {"audio": "", "error": "Invalid voice id"};
+    }
+    model = os.environ.get("ELEVENLABS_MODEL", "").strip() or TTS_DEFAULT_MODEL;
+    cache_key = model + "|" + voice + "|" + text;
+    if cache_key in _tts_cache {
+        return {"audio": _tts_cache[cache_key], "error": ""};
+    }
+    req = urllib.request.Request(
+        f"https://api.elevenlabs.io/v1/text-to-speech/{voice}?output_format=mp3_44100_128",
+        data=json.dumps({"text": text, "model_id": model}).encode("utf-8"),
+        headers={"xi-api-key": key, "Content-Type": "application/json", "Accept": "audio/mpeg"},
+        method="POST"
+    );
+    try {
+        resp: any = urllib.request.urlopen(req, timeout=60);
+        mp3: bytes = resp.read();
+        resp.close();
+    } except urllib.error.HTTPError as e {
+        detail = e.read().decode("utf-8", "replace")[:300];
+        return {"audio": "", "error": f"ElevenLabs {e.code}: {detail}"};
+    } except Exception as e {
+        return {"audio": "", "error": f"ElevenLabs request failed: {e}"};
+    }
+    url = "data:audio/mpeg;base64," + base64.b64encode(mp3).decode("ascii");
+    _tts_cache[cache_key] = url;
+    return {"audio": url, "error": ""};
+}
+
+impl list_voices -> dict {
+    if _voices_cache {
+        return {"voices": _voices_cache, "source": "account"};
+    }
+    key = os.environ.get("ELEVENLABS_API_KEY", "").strip();
+    if key {
+        req = urllib.request.Request(
+            "https://api.elevenlabs.io/v2/voices?page_size=100",
+            headers={"xi-api-key": key, "Accept": "application/json"}
+        );
+        try {
+            resp: any = urllib.request.urlopen(req, timeout=20);
+            data: any = json.loads(resp.read().decode("utf-8"));
+            resp.close();
+            out: list[dict] = [];
+            raw: list[any] = data.get("voices", []);
+            for v in raw {
+                labels: any = v.get("labels") or {};
+                bits = [str(labels.get(k, "")) for k in ["descriptive", "accent", "gender"] if labels.get(k)];
+                out.append({"id": v["voice_id"], "name": v["name"], "desc": ", ".join(bits) or str(v.get("category", ""))});
+            }
+            if out {
+                _voices_cache.extend(out);
+                return {"voices": out, "source": "account"};
+            }
+        } except Exception {
+            # Typically 401 missing_permissions (voices_read); fall through to premade.
+        }
+    }
+    return {"voices": PREMADE_VOICES, "source": "premade"};
+}
