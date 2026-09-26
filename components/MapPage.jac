@@ -1,0 +1,246 @@
+"""Map tab: graph truth as an interactive Google Map — Jac shell + overlays."""
+
+import from "@hugeicons/react" { HugeiconsIcon }
+import from "@hugeicons/core-free-icons" { Location01Icon }
+import from .ui.skeleton { Skeleton }
+import from .ui.button { Button }
+import from .FilterBar { FilterBar }
+import from .map_markers { sticker_img_url }
+import from .pulse_theme { campus_lat, campus_lng }
+import from .MapChrome {
+    MapAddressSearch,
+    MapLegend,
+    MapKeyMissing,
+    MapLoading
+}
+import from .google_maps {
+    load_google_maps,
+    create_pulse_map,
+    apply_map_theme,
+    clear_overlays,
+    sync_map_overlays,
+    pan_to_item,
+    place_search_pin,
+    clear_search_pin
+}
+sv import from ..services.pulse { MapSnapshot, MapItem, maps_config }
+
+def:pub MapPage(
+    filters: dict, onFilters: Callable[[dict], None], dark: bool = True
+) -> JsxElement {
+    has items: list[MapItem] = [],
+        loading: bool = True,
+        error: str = "",
+        focusId: str = "",
+        apiKey: str = "",
+        keyChecked: bool = False,
+        mapsReady: bool = False,
+        mapEl: Ref[HTMLDivElement] = Ref(),
+        mapRef: Ref[any] = Ref(None),
+        overlaysRef: Ref[any] = Ref(None),
+        infoRef: Ref[any] = Ref(None),
+        searchPinRef: Ref[any] = Ref(None);
+
+    async can with entry {
+        cfg = await maps_config();
+        key = cfg["key"] or "";
+        apiKey = key;
+        keyChecked = True;
+        if key {
+            load_google_maps(key, lambda { mapsReady = True; });
+        }
+    }
+
+    async def load_pins -> None {
+        loading = True;
+        error = "";
+        try {
+            res = root spawn MapSnapshot(
+                categories=filters["categories"] or [],
+                kinds=filters["kinds"] or [],
+                price=filters["price"] or "any",
+                time=filters["time"] or "week",
+                distance=filters["distance"] or 0.0,
+                clat=campus_lat(),
+                clng=campus_lng(),
+                persona="student"
+            );
+            items = res.reports[0] if res.reports and len(res.reports) > 0 else [];
+        } except Exception {
+            error = "Could not load the map layer.";
+        }
+        loading = False;
+    }
+
+    can with [filters] entry {
+        load_pins();
+    }
+
+    can with [mapsReady] entry {
+        if mapsReady and mapEl.current and not mapRef.current {
+            bundle = create_pulse_map(mapEl.current, dark);
+            mapRef.current = bundle["map"];
+            infoRef.current = bundle["info"];
+            overlaysRef.current = [];
+        }
+    }
+
+    can with exit {
+        old: list[any] = overlaysRef.current or [];
+        clear_overlays(old);
+        clear_search_pin(searchPinRef.current);
+        mapRef.current = None;
+        infoRef.current = None;
+        overlaysRef.current = None;
+        searchPinRef.current = None;
+    }
+
+    can with (dark, mapsReady) entry {
+        apply_map_theme(mapRef.current, dark, mapEl.current);
+    }
+
+    can with (items, focusId, filters, mapsReady, dark) entry {
+        m: any = mapRef.current;
+        if not m or not mapsReady {
+            return;
+        }
+        old: list[any] = overlaysRef.current or [];
+        clear_overlays(old);
+        dist: float = filters["distance"] or 0.0;
+        overlaysRef.current = sync_map_overlays(
+            m,
+            infoRef.current,
+            items,
+            focusId,
+            dist,
+            dark,
+            lambda (id: str) { focusId = id; }
+        );
+    }
+
+    def focus_item(it: MapItem) {
+        focusId = it.id;
+        clear_search_pin(searchPinRef.current);
+        searchPinRef.current = None;
+        pan_to_item(mapRef.current, it.lat, it.lng);
+    }
+
+    def go_to_place(lat: float, lng: float, label: str) {
+        focusId = "";
+        searchPinRef.current = place_search_pin(
+            mapRef.current,
+            infoRef.current,
+            dark,
+            lat,
+            lng,
+            label,
+            searchPinRef.current
+        );
+    }
+
+    def retry_load(e: MouseEvent) {
+        load_pins();
+    }
+
+    return
+        <div className="flex flex-1 flex-col bg-background text-foreground lg:flex-row">
+            <div
+                className="relative min-h-[60svh] flex-1 bg-muted lg:min-h-[calc(100svh-120px)]"
+            >
+                <div ref={mapEl} className="absolute inset-0"/>
+                {keyChecked and not apiKey and <MapKeyMissing/>}
+                {apiKey and not mapsReady and <MapLoading/>}
+                {mapsReady
+                    and <MapAddressSearch dark={dark} onGoTo={go_to_place}/>}
+                {mapsReady and <MapLegend dark={dark}/>}
+            </div>
+            <aside
+                className="flex w-full flex-col gap-6 border-t border-border bg-background pt-6 pb-6 pl-6 pr-6 lg:w-[380px] lg:border-l lg:border-t-0"
+            >
+                <FilterBar filters={filters} onChange={onFilters}/>
+                <div className="flex flex-col gap-2 border-t border-border pt-5">
+                    <div className="flex items-baseline justify-between gap-2">
+                        <h3 className="text-sm font-semibold text-foreground">
+                            {"On the map"}
+                        </h3>
+                        <span className="text-xs tabular-nums text-muted-foreground">
+                            {f"{len(items)} items"}
+                        </span>
+                    </div>
+                    <p className="text-xs text-muted-foreground">
+                        {"Includes student commute-route alerts from the graph."}
+                    </p>
+                    {error
+                        and <div className="flex items-center gap-3">
+                            <p className="text-sm text-destructive">{error}</p>
+                            <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={retry_load}
+                            >
+                                {"Retry"}
+                            </Button>
+                        </div>}
+                    {if loading and len(items) == 0 {
+                        <div className="flex flex-col gap-2">
+                            <Skeleton className="h-12 w-full"/>
+                            <Skeleton className="h-12 w-full"/>
+                            <Skeleton className="h-12 w-full"/>
+                        </div>
+                        skip;
+                    }}
+                    {if not loading and len(items) == 0 and not error {
+                        <div
+                            className="flex flex-col items-center gap-2 rounded-lg border border-dashed border-border pt-8 pb-8 text-center"
+                        >
+                            <HugeiconsIcon
+                                icon={Location01Icon}
+                                strokeWidth={2}
+                                className="size-5 text-muted-foreground"
+                            />
+                            <p className="text-sm font-medium text-foreground">
+                                {"No places match"}
+                            </p>
+                            <p className="text-xs text-muted-foreground">
+                                {"Widen the distance or clear a filter."}
+                            </p>
+                        </div>
+                        skip;
+                    }}
+                    <div
+                        className="-ml-2 -mr-2 flex max-h-[46svh] flex-col overflow-y-auto"
+                    >
+                        {for it in items {
+                            <button
+                                key={it.id}
+                                type="button"
+                                onClick={lambda (e: MouseEvent) { focus_item(it); }}
+                                className={
+                                    "flex items-start gap-3 rounded-md pt-2.5 pb-2.5 pl-2 pr-2 text-left text-foreground transition-colors hover:bg-muted "
+                                    + ("bg-muted" if it.id == focusId else "")
+                                }
+                            >
+                                <img
+                                    src={sticker_img_url(it.kind, dark)}
+                                    alt=""
+                                    className="mt-0.5 h-9 w-9 shrink-0 object-contain"
+                                />
+                                <span className="flex min-w-0 flex-1 flex-col">
+                                    <span className="truncate text-sm font-medium">
+                                        {it.name}
+                                    </span>
+                                    <span className="truncate text-xs text-muted-foreground">
+                                        {it.when
+                                            + ((" · " + it.venue) if it.venue else "")}
+                                    </span>
+                                </span>
+                                <span className="shrink-0 text-xs tabular-nums text-muted-foreground">
+                                    {f"{it.dist:.1f} mi"}
+                                </span>
+                            </button>
+                        }}
+                    </div>
+                </div>
+            </aside>
+        </div>;
+}
