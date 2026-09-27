@@ -295,3 +295,7 @@ def:pub speak_brief(text: str, voice_id: str = "") -> dict[str, any];
 """Voice actors for the brief: the account's voices when the key has voices_read,
 otherwise a curated set of ElevenLabs premade voices. Each: {id, name, desc}."""
 def:pub list_voices() -> dict[str, any];
+
+"""Fetch live events from external APIs and upsert into graph."""
+def:pub ingest_live() -> dict[str, any];
+

@@ -725,3 +725,32 @@ impl list_voices -> dict[str, any] {
     }
     return {"voices": PREMADE_VOICES, "source": "premade"};
 }
+
+impl ingest_live() -> dict[str, any] {
+    mod: any = __import__("services.ingestion", fromlist=["fetch_all"]);
+    results: list[any] = mod.fetch_all();
+    count: int = 0;
+    hubs = [root -->][?:Hub];
+    if not hubs { return {"ingested": 0, "debug": "no hub"}; }
+    h = hubs[0];
+    existing_keys: list[str] = [n.key for n in [h -->][?:Event]];
+    for item in results {
+        if item["key"] in existing_keys { continue; }
+        e = Event(
+            key=item["key"],
+            name=item["name"],
+            kind="event",
+            desc=item["desc"],
+            when=item["when"],
+            price=item["price"],
+            lat=item["lat"],
+            lng=item["lng"],
+            source_url=item.get("source_url", ""),
+            source_name=item["src"]
+        );
+        h ++> e;
+        existing_keys.append(item["key"]);
+        count += 1;
+    }
+    return {"ingested": count, "total_fetched": len(results)};
+}
