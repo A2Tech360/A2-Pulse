@@ -1,5 +1,17 @@
 {
+ "3314 mason hall": [
+  42.277047,
+  -83.739501,
+  "Mason Hall, 419, South State Street, Germantown, Ann Arbor, Washtenaw County, Michigan, 48109, United States"
+ ],
+ "922 w michigan ave ypsilanti mi": [
+  42.2377066,
+  -83.6258402,
+  "Growing Hope Center, 922, West Michigan Avenue, Ainsworth, Ypsilanti, Washtenaw County, Michigan, 48197, United States"
+ ],
+ "activities and recreation center": null,
  "ann arbor": null,
+ "ann arbor, mich.": null,
  "ark reserved": null,
  "art & architecture building, 2000 bonisteel blvd, ann arbor mi 48109-2069": [
   42.2895754,
@@ -7,23 +19,65 @@
   "Art & Architecture Building, 2000, Bonisteel Boulevard, Ann Arbor, Washtenaw County, Michigan, 48109, United States"
  ],
  "baits ii coman house lounge": null,
+ "campus farm": [
+  42.2989056,
+  -83.665014,
+  "Campus Farm, Ann Arbor Charter Township, Washtenaw County, Michigan, United States"
+ ],
  "champaign, illinois": null,
+ "diag (grass near mason hall)": null,
+ "dr.e. royster harper hall": [
+  42.2699229,
+  -83.7453514,
+  "Wolverine Village Building 5, Wolverine Way, Germantown, Ann Arbor, Washtenaw County, Michigan, 48104, United States"
+ ],
+ "duderstadt center": [
+  42.2911757,
+  -83.715767,
+  "Duderstadt Center, 2281, Bonisteel Boulevard, Ann Arbor, Washtenaw County, Michigan, 48109, United States"
+ ],
+ "east hall": [
+  42.2757491,
+  -83.7351998,
+  "East Hall, 530, Church Street, Ann Arbor, Washtenaw County, Michigan, 48109, United States"
+ ],
+ "east quadrangle": [
+  42.2729288,
+  -83.7351593,
+  "East Quadrangle, 701, East University Avenue, Ann Arbor, Washtenaw County, Michigan, 48109, United States"
+ ],
+ "gallup park": [
+  42.2763623,
+  -83.6975072,
+  "Gallup Park, 3000, Geddesburg, Ann Arbor, Washtenaw County, Michigan, 48105, United States"
+ ],
+ "growing hope": null,
  "hatcher graduate library": [
   42.276223,
   -83.7381768,
   "Hatcher Graduate Library, 913, South University Avenue, Germantown, Ann Arbor, Washtenaw County, Michigan, 48109, United States"
  ],
+ "kalamazoo (league, 2nd floor)": null,
  "kelsey museum of archaeology": [
   42.2767473,
   -83.741374,
   "Kelsey Museum of Archaeology, 434, South State Street, Germantown, Ann Arbor, Washtenaw County, Michigan, 48109, United States"
  ],
+ "maize and blue cupboard inside betsy barbour": null,
+ "mason hall": [
+  42.277047,
+  -83.739501,
+  "Mason Hall, 419, South State Street, Germantown, Ann Arbor, Washtenaw County, Michigan, 48109, United States"
+ ],
+ "meet in the munger ground floor lobby": null,
  "michigan stadium": [
   42.2658285,
   -83.7478267,
   "Michigan Stadium, 1201, South Main Street, Ann Arbor, Washtenaw County, Michigan, 48104, United States"
  ],
+ "michigan union: parker room": null,
  "mitchell east": null,
+ "mpr b": null,
  "museum of natural history": [
   42.2788567,
   -83.7342551,
@@ -34,12 +88,20 @@
   -83.7093323,
   "Northwood Community Center, 500, McIntyre Drive, Ann Arbor, Washtenaw County, Michigan, 48109, United States"
  ],
+ "northwood community center multipurpose room (1000 mcintyre dr)": [
+  42.2974196,
+  -83.7091109,
+  "Northwood IV Community Center, 1000, McIntyre Drive, Ann Arbor, Washtenaw County, Michigan, 48109, United States"
+ ],
  "olson park, 1515 dhu varren rd, ann arbor, mi 48105": [
   42.3164401,
   -83.7306921,
   "1515, Dhu Varren Road, Ann Arbor, Washtenaw County, Michigan, 48105, United States"
  ],
+ "rotunda lounge": null,
  "south lounge": null,
+ "south quad front yard": null,
+ "south quad yard": null,
  "stamps gallery, 201 s division st, ann arbor, mi 48104": [
   42.280231,
   -83.743881,
@@ -50,7 +112,39 @@
   -83.743881,
   "201, South Division Street, Kerrytown, Ann Arbor, Washtenaw County, Michigan, 48104, United States"
  ],
+ "tauber colloquium": null,
+ "taubman college laser cutter room": null,
+ "the legacy": [
+  42.2800167,
+  -83.7418588,
+  "The Legacy at Ann Arbor, 616, East Washington Street, Old Fourth Ward, Ann Arbor, Washtenaw County, Michigan, 48104, United States"
+ ],
+ "u of m - sports coliseum,": null,
+ "u-m soccer stadium": null,
+ "university of notre dame": null,
+ "varsity tennis bldg": null,
  "wallis annenberg stadium": null,
+ "walsh university": null,
+ "washtenaw dairy": [
+  42.2738926,
+  -83.7503776,
+  "Washtenaw Dairy, 602, South Ashley Street, Old West Side, Ann Arbor, Washtenaw County, Michigan, 48103, United States"
+ ],
+ "wesley foundation, 602 e huron st., ann arbor, mi": [
+  42.2811362,
+  -83.7419113,
+  "602, East Huron Street, Old Fourth Ward, Ann Arbor, Washtenaw County, Michigan, 48104, United States"
+ ],
+ "wolverine village building 1": [
+  42.2713308,
+  -83.745829,
+  "Wolverine Village Building 1, Wolverine Way, Germantown, Ann Arbor, Washtenaw County, Michigan, 48104, United States"
+ ],
+ "yost ice arena": [
+  42.2675777,
+  -83.7410248,
+  "Yost Ice Arena, South State Street, Burns Park, Ann Arbor, Washtenaw County, Michigan, 48108, United States"
+ ],
  "ypsilanti freighthouse (100 market place, ypsilanti)": [
   42.2468066,
   -83.6101271,

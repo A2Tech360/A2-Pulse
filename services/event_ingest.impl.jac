@@ -1,10 +1,12 @@
 """Implementation for live calendar fetch + graph upsert."""
 
 import os;
+import re;
 import hashlib;
 import from urllib.request { Request, urlopen }
 import from datetime { datetime }
 import from services.seed_data { CATEGORIES }
+import from services.umich_feed { fetch_happening_umich }
 import from services.event_parse {
     strip_html,
     extract_for_feed,
@@ -43,8 +45,8 @@ glob INGEST_FEEDS: list[dict[str, any]] = [
     {
         "key": "src-um-live",
         "name": "Happening @ Michigan",
-        "url": "https://events.umich.edu/list",
-        "kind": "generic"
+        "url": "https://events.umich.edu/week/json?v=2",
+        "kind": "umich-json"
     },
     {
         "key": "src-aadl-live",
@@ -228,6 +230,62 @@ def _ensure_venue(hub: Hub, hint: str) -> Venue {
     return v;
 }
 
+def _near(lat1: float, lng1: float, lat2: float, lng2: float) -> bool {
+    # ~300 m box; plenty to tell one campus building from the next.
+    dlat: float = lat1 - lat2;
+    dlng: float = lng1 - lng2;
+    return -0.003 < dlat and dlat < 0.003 and -0.004 < dlng and dlng < 0.004;
+}
+
+def _ensure_geo_venue(hub: Hub, name: str, lat: float, lng: float, address: str) -> Venue {
+    # Alias matching is substring-based ("Olson Park" contains "ark"), so only reuse
+    # a known venue when it is actually at this spot.
+    found = _find_venue_key(hub, name);
+    if found and _near(found.lat, found.lng, lat, lng) {
+        return found;
+    }
+    label = clip(name.strip() if name.strip() else address, 60);
+    key = "v-geo-" + hashlib.md5(label.lower().encode("utf-8")).hexdigest()[:10];
+    for v in [hub -->][?:Venue] {
+        if v.key == key {
+            return v;
+        }
+    }
+    # Geocoded venues are real places, so they don't count toward the v-live- cap.
+    v = Venue(
+        key=key,
+        name=label,
+        kind="venue",
+        address=address,
+        lat=lat,
+        lng=lng,
+        desc="Venue geocoded from live listings."
+    );
+    hub ++> v;
+    place = _nearest_place(hub, lat, lng);
+    if place {
+        v +>:Near():+> place;
+    }
+    return v;
+}
+
+def _drop_legacy_um(hub: Hub) -> int {
+    # Remove events (um-*) and slug-keyed venues left by the retired ingest_live pipeline.
+    dropped: int = 0;
+    for n in [hub -->][?:Event] {
+        if n.key.startswith("um-") {
+            del n;
+            dropped += 1;
+        }
+    }
+    for v in [hub -->][?:Venue] {
+        if re.fullmatch(r"v-live-[a-z0-9]+(-[a-z0-9]+)+", v.key) and len([v <-:HostedAt:<-]) == 0 {
+            del v;
+        }
+    }
+    return dropped;
+}
+
 def _dict_to_raw(d: dict[str, any]) -> RawEvent {
     cats_any: any = d.get("categories", []);
     cats: list[str] = [];
@@ -248,7 +306,11 @@ def _dict_to_raw(d: dict[str, any]) -> RawEvent {
         price=float(d.get("price", 0.0) if d.get("price", 0.0) is not None else 0.0),
         categories=cats,
         source_url=str(d.get("source_url", "")),
-        day=int(d.get("day", -1) if d.get("day", -1) is not None else -1)
+        day=int(d.get("day", -1) if d.get("day", -1) is not None else -1),
+        lat=float(d.get("lat", 0.0) or 0.0),
+        lng=float(d.get("lng", 0.0) or 0.0),
+        address=str(d.get("address", "")),
+        ext_id=str(d.get("ext_id", ""))
     );
 }
 
@@ -342,7 +404,7 @@ def _upsert_event(hub: Hub, raw: RawEvent, src: SourceDoc) -> str {
         return "skip";
     }
     when = clip(raw.when, 80);
-    key = event_key(name, when, src.key);
+    key = ("live-um-" + raw.ext_id) if raw.ext_id else event_key(name, when, src.key);
     day = raw.day if raw.day >= 0 else parse_day(when);
     if day < 0 {
         day = datetime.now().weekday();
@@ -352,9 +414,19 @@ def _upsert_event(hub: Hub, raw: RawEvent, src: SourceDoc) -> str {
         cats = guess_cats(name + " " + raw.desc + " " + when);
     }
     price = raw.price if raw.price >= 0.0 else guess_price(name + " " + raw.desc);
-    ven = _ensure_venue(hub, raw.venue + " " + name + " " + raw.desc);
+    # Geocoded feeds (ext_id set) bring their own coordinates; without them the event is
+    # online or unplaceable, so it gets no venue rather than a guessed pin.
+    ven: Venue | None = None;
+    if raw.lat != 0.0 or raw.lng != 0.0 {
+        ven = _ensure_geo_venue(hub, raw.venue, raw.lat, raw.lng, raw.address);
+    } elif not raw.ext_id {
+        ven = _ensure_venue(hub, raw.venue + " " + name + " " + raw.desc);
+    }
+    lat: float = ven.lat if ven else 0.0;
+    lng: float = ven.lng if ven else 0.0;
+    address: str = ven.address if ven and not raw.address else raw.address;
     org_name = raw.organizer if raw.organizer else src.name;
-    org = _ensure_organizer(hub, org_name, ven);
+    org = _ensure_organizer(hub, org_name, ven if ven else _default_venue(hub));
     desc = clip(raw.desc if raw.desc else ("Listed on " + src.name + "."), 280);
     url = raw.source_url if raw.source_url else src.source_url;
     existing = _find_event(hub, key);
@@ -364,9 +436,16 @@ def _upsert_event(hub: Hub, raw: RawEvent, src: SourceDoc) -> str {
         existing.when = when if when else existing.when;
         existing.day = day;
         existing.price = price;
-        existing.lat = ven.lat;
-        existing.lng = ven.lng;
-        existing.address = ven.address;
+        existing.lat = lat;
+        existing.lng = lng;
+        existing.address = address;
+        cur = [existing ->:HostedAt:->][?:Venue];
+        if ven is None or len(cur) == 0 or cur[0].key != ven.key {
+            del [edge existing ->:HostedAt:->];
+            if ven {
+                existing +>:HostedAt():+> ven;
+            }
+        }
         existing.source_name = src.name;
         existing.source_url = url;
         existing.sub = "free" if price == 0.0 else "paid";
@@ -380,15 +459,17 @@ def _upsert_event(hub: Hub, raw: RawEvent, src: SourceDoc) -> str {
         when=(when if when else "Upcoming"),
         day=day,
         price=price,
-        lat=ven.lat,
-        lng=ven.lng,
-        address=ven.address,
+        lat=lat,
+        lng=lng,
+        address=address,
         source_name=src.name,
         source_url=url,
         sub=("free" if price == 0.0 else "paid")
     );
     hub ++> ev;
-    ev +>:HostedAt():+> ven;
+    if ven {
+        ev +>:HostedAt():+> ven;
+    }
     ev +>:OrganizedBy():+> org;
     ev +>:SourcedFrom():+> src;
     for c in cats {
@@ -453,35 +534,49 @@ impl sync_online_events(force: bool) -> SyncReport {
     }
     hub = _hub();
     _ensure_categories(hub);
+    _drop_legacy_um(hub);
     for feed in INGEST_FEEDS {
         key = str(feed["key"]);
         name = str(feed["name"]);
         url = str(feed["url"]);
         kind = str(feed["kind"]);
         try {
-            accept = "application/json" if kind == "tribe" else "";
-            body = _http_get(url, accept);
-            if len(body) < 40 {
-                rep.errors.append(name + ": empty page (blocked or changed)");
-                continue;
-            }
-            # Tribe/Eventbrite need raw body (JSON / __SERVER_DATA__).
-            # HTML feeds get stripped text for title heuristics + LLM.
-            parse_body = body;
-            if kind != "tribe" and kind != "eventbrite" {
-                parse_body = strip_html(body);
-                if len(parse_body) < 80 {
+            raws: list[RawEvent] = [];
+            if kind == "umich-json" {
+                # umich_feed fetches the JSON API itself, geocodes each building and
+                # falls back to its last good response when Cloudflare returns 403.
+                rows = fetch_happening_umich();
+                if len(rows) == 0 {
+                    rep.errors.append(name + ": feed blocked and no cached copy yet");
+                    continue;
+                }
+                src = _ensure_source(hub, key, name, url);
+                raws = [_dict_to_raw(d) for d in rows];
+            } else {
+                accept = "application/json" if kind == "tribe" else "";
+                body = _http_get(url, accept);
+                if len(body) < 40 {
                     rep.errors.append(name + ": empty page (blocked or changed)");
                     continue;
                 }
+                # Tribe/Eventbrite need raw body (JSON / __SERVER_DATA__).
+                # HTML feeds get stripped text for title heuristics + LLM.
+                parse_body = body;
+                if kind != "tribe" and kind != "eventbrite" {
+                    parse_body = strip_html(body);
+                    if len(parse_body) < 80 {
+                        rep.errors.append(name + ": empty page (blocked or changed)");
+                        continue;
+                    }
+                }
+                low = parse_body.lower() if kind != "tribe" else body[:400].lower();
+                if "security verification" in low or "enable javascript and cookies" in low {
+                    rep.errors.append(name + ": Cloudflare blocked automated fetch");
+                    continue;
+                }
+                src = _ensure_source(hub, key, name, url);
+                raws = _collect_raws(kind, parse_body, url, name);
             }
-            low = parse_body.lower() if kind != "tribe" else body[:400].lower();
-            if "security verification" in low or "enable javascript and cookies" in low {
-                rep.errors.append(name + ": Cloudflare blocked automated fetch");
-                continue;
-            }
-            src = _ensure_source(hub, key, name, url);
-            raws = _collect_raws(kind, parse_body, url, name);
             rep.fetched = rep.fetched + len(raws);
             rep.sources.append(name);
             for raw in raws {

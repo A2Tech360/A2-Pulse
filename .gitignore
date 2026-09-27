@@ -7,3 +7,7 @@ node_modules/
 
 __pycache__/
 *.py[cod]
+
+# Happening @ Michigan feed + geocode caches (services/umich_feed.py)
+services/.geocache.json
+services/.um_feed_cache.json

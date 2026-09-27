@@ -1011,6 +1011,10 @@ impl MapSnapshot.pin {
     } elif not _passes(here, spec, self.clat, self.clng) {
         return;
     }
+    # Online or ungeocoded items have no real location; don't pin them at 0,0.
+    if here.lat == 0.0 and here.lng == 0.0 {
+        return;
+    }
     ven = _venue_of(here);
     self.items.append(MapItem(
         id=jid(here), key=here.key, name=here.name, kind=here.kind, desc=here.desc,

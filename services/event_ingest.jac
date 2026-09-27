@@ -27,7 +27,13 @@ obj RawEvent {
         price: float = 0.0,
         categories: list[str] = [],
         source_url: str = "",
-        day: int = -1;
+        day: int = -1,
+        # Set by geocoded feeds (Happening @ Michigan); 0,0 means no known location.
+        lat: float = 0.0,
+        lng: float = 0.0,
+        address: str = "",
+        # Stable id from the source, used for the event key when present.
+        ext_id: str = "";
 }
 
 # ---------------------------------------------------------------- LLM extract (optional)
