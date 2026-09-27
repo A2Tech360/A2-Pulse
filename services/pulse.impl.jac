@@ -218,23 +218,24 @@ impl _action_for(n: PulseNode, reasons: list[str], commute: str) -> str {
 
 # Bus riders: closures and detours change where the bus goes, not just traffic.
 impl _bus_action_for(n: PulseNode, reasons: list[str]) -> str {
+    # Kept short: to-dos are read aloud and the whole brief must stay near one minute.
     near_home = len([r for r in reasons if r.startswith("Near your home")]) > 0;
     if n.kind == "alert" {
         if n.sub == "detour" {
-            return "Your bus is detouring (" + n.when + "). Check TheRide's live map for moved stops and allow 15 extra minutes.";
+            return "Your bus is detouring (" + n.when + "). Check TheRide's live map and allow 15 extra minutes.";
         }
         if near_home {
-            return "Stops near home may move while this is closed (" + n.when + "). Check TheRide alerts and allow 10 extra minutes.";
+            return "Stops near home may move (" + n.when + "). Check TheRide alerts and allow 10 extra minutes.";
         }
-        return "Buses on your route may detour around this (" + n.when + "). Check TheRide alerts and allow 10 extra minutes.";
+        return "Your bus may detour around it (" + n.when + "). Check TheRide alerts before you leave.";
     }
     if n.kind == "civic" {
-        return "Sign up for public comment or email Council: " + n.when + ". Transit riders' comments count.";
+        return "Sign up for public comment or email Council: " + n.when + ".";
     }
     if n.price == 0.0 {
-        return "Free. Save it for " + n.when + " and plan the bus trip in TheRide's trip planner.";
+        return "Free. Save it for " + n.when + " and check the bus times.";
     }
-    return "RSVP and grab a ticket ($" + str(int(n.price)) + ") for " + n.when + ", then plan the bus trip in TheRide's trip planner.";
+    return "RSVP and grab a ticket ($" + str(int(n.price)) + ") for " + n.when + ".";
 }
 
 impl _heuristic_filters(text: str, prior: FilterSpec) -> FilterSpec {
