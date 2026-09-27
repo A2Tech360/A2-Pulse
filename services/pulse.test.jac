@@ -71,7 +71,7 @@ test "debug trace covers profile, scores, actions, editor, spoken text and timin
     assert [a["action"] for a in t["actions"]] == [it.action for it in b.items];
     assert t["editor"]["mode"] == "llm";
     assert t["editor"]["raw_llm"] == RAW;
-    assert "Plymouth Rd lane closure" in str(t["editor"]["input"]["items"]);
+    assert "Plymouth Road lane closure" in str(t["editor"]["input"]["items"]);
     assert t["spoken"] == b.summary;
     for k in ["profile_ms", "relevance_ms", "actions_ms", "editor_ms", "llm_ms", "speakable_ms", "persist_ms", "total_ms"] {
         assert k in dict(t["timing_ms"]), k;

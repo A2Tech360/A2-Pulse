@@ -173,12 +173,16 @@ def template_brief(first_name: str, items: list[dict[str, any]], today: date | N
     return text;
 }
 
-"""The lines the LLM sees for the ranked items."""
-def editor_items_text(items: list[dict[str, any]]) -> str {
+"""The lines the LLM sees for the ranked items. They are already made speakable, so it never has to guess what an
+abbreviation stands for (it read "UMS" as University of Michigan)."""
+def editor_items_text(items: list[dict[str, any]], ref: date | None = None) -> str {
     lines: list[str] = [];
     for (i, it) in enumerate(items) {
-        why = "; ".join([str(r).rstrip(".") for r in list(it.get("reasons", []))[:3]]);
-        lines.append(f"{i + 1}. {it['name']} ({it['kind']}). When: {it['when']}. Why it matters: {why}. What to do: {it['action']}");
+        why = "; ".join([speakable(str(r), ref).rstrip(".") for r in list(it.get("reasons", []))[:3]]);
+        name = speakable(str(it["name"]), ref);
+        when = speakable(str(it.get("when", "")), ref);
+        action = speakable(str(it.get("action", "")), ref);
+        lines.append(f"{i + 1}. {name} ({it['kind']}). When: {when}. Why it matters: {why}. What to do: {action}");
     }
     return "\n".join(lines);
 }
@@ -190,7 +194,7 @@ def edit_brief(first_name: str, profile_line: str, items: list[dict[str, any]], 
     # The brief is for its week's Monday (next Monday on weekends); item days are days of that week.
     monday = brief_monday(ref);
     week_of = monday.strftime("%A, %B ") + str(monday.day) + monday.strftime(", %Y");
-    items_text = editor_items_text(items);
+    items_text = editor_items_text(items, monday);
     out: dict[str, any] = {
         "mode": "template", "model": "", "spoken": "", "raw_llm": None, "error": "",
         "input": {"profile": profile_line, "items": items_text, "week_of": week_of},

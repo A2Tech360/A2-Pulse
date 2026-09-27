@@ -37,7 +37,9 @@ test "llm output goes through speakable" {
     assert "Plymouth Road" in str(out["spoken"]);
     assert "Saturday at 7 p.m." in str(out["spoken"]);
     assert "University of Michigan" in str(out["spoken"]);
-    assert "1. Plymouth Rd lane closure" in str(out["input"]["items"]);
+    # The LLM sees speakable item text, so it never guesses at abbreviations.
+    assert "1. Plymouth Road lane closure" in str(out["input"]["items"]);
+    assert "Wednesday to Friday, 7 a.m. to 5 p.m." in str(out["input"]["items"]);
 }
 
 test "llm error falls back to the template" {
@@ -181,4 +183,11 @@ test "an LLM brief that says today, tonight or tomorrow falls back to the templa
         assert out["mode"] == "template", word;
         assert word in str(out["error"]), out["error"];
     }
+}
+
+test "acronyms reach the LLM already expanded" {
+    items: list[dict[str, any]] = [{"name": "UMS Symphony: Rachmaninoff 2", "kind": "event", "when": "Sun 4:00 PM", "reasons": ["From UMS, which you follow"], "action": "RSVP and grab a ticket ($12) for Sun 4:00 PM."}];
+    text = editor_items_text(items, TODAY);
+    assert "University Musical Society Symphony: Rachmaninoff 2" in text, text;
+    assert "12 dollars" in text and "Sunday at 4 p.m." in text and "UMS" not in text, text;
 }
