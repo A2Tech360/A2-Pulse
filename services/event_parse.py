@@ -218,17 +218,55 @@ def guess_cats(title: str, desc: str = "", source: str = "", fallback: list[str]
     return out[:3]
 
 
+# Listing and ticketing platforms: they are sources, never the host/organizer.
+PLATFORM_NAMES = [
+    "eventbrite", "ticketmaster", "live nation", "axs", "etix", "universe", "tixr",
+    "see tickets", "dice", "meetup", "ann arbor observer", "observer editor",
+    "marquee arts", "happening @ michigan", "happening at michigan",
+]
+# Aggregator feeds whose listings belong to other hosts (vs presenters like The Ark).
+AGGREGATOR_SOURCES = ["ann arbor observer", "eventbrite ann arbor", "marquee arts", "happening @ michigan"]
+
+
+def is_platform(name: str) -> bool:
+    """True for a listing/ticketing platform name ("Eventbrite host", "Ann Arbor Observer")."""
+    low = (name or "").strip().lower()
+    return bool(low) and any(low == p or low.startswith(p + " ") for p in PLATFORM_NAMES)
+
+
+_NOT_ADMISSION = re.compile(
+    r"\b(?:free (?:parking|shuttle|t-?shirts?|food|drinks?|snacks?|pizza|giveaways?|swag|wifi|wi-fi)|"
+    r"gluten[- ]free|sugar[- ]free|dairy[- ]free|nut[- ]free|free[- ]range|hands[- ]free|free (?:giveaway))\b",
+    re.IGNORECASE,
+)
+_FREE = re.compile(r"\b(?:free|pay what you (?:wish|can)|pwyw|no cost|no charge|free admission)\b", re.IGNORECASE)
+
+
 def guess_price(blob: str) -> float:
-    low = (blob or "").lower()
-    if "free" in low or "pay what you wish" in low or "pwyw" in low:
-        return 0.0
-    m = re.search(r"\$(\d+(?:\.\d+)?)", blob or "")
+    """Price only when the listing text states it: 0.0 for an explicit "free" (not
+    "free parking"), the first $ amount, else -1.0 (unknown). Unknown used to be
+    0.0, which the brief read out as "Free"."""
+    text = _NOT_ADMISSION.sub(" ", blob or "")
+    m = re.search(r"\$\s?(\d+(?:\.\d+)?)", text)
     if m:
         try:
             return float(m.group(1))
         except Exception:
-            return 0.0
-    return 0.0
+            return -1.0
+    if _FREE.search(text):
+        return 0.0
+    return -1.0
+
+
+def parse_cost(cost: str) -> float:
+    """Tribe "cost" field: "$40.00" -> 40.0, "Free" -> 0.0, "" -> -1.0 (unknown)."""
+    c = (cost or "").strip()
+    if not c:
+        return -1.0
+    if re.search(r"\bfree\b", c, re.IGNORECASE):
+        return 0.0
+    m = re.search(r"(\d+(?:\.\d+)?)", c.replace(",", ""))
+    return float(m.group(1)) if m else -1.0
 
 
 def _row(
@@ -240,6 +278,7 @@ def _row(
     source_url: str,
     source: str = "",
     fallback_cats: list[str] | None = None,
+    price: float | None = None,
 ) -> dict[str, Any]:
     name = unescape(name or "").strip()
     desc = unescape(desc or "").strip()
@@ -251,7 +290,7 @@ def _row(
         "when": clip(when, 80),
         "venue": venue,
         "organizer": organizer,
-        "price": guess_price(blob),
+        "price": price if price is not None and price >= 0.0 else guess_price(f"{name} {desc}"),
         "categories": guess_cats(name, desc, source, fallback_cats),
         "source_url": source_url,
         "day": parse_day(when),
@@ -348,7 +387,8 @@ def parse_generic(text: str, page_url: str, source_name: str) -> list[dict[str, 
             continue
         after = text[m.end() : m.end() + 220]
         desc = " ".join([ln.strip() for ln in after.split("\n") if ln.strip()][:2])
-        out.append(_row(title, desc, when, "", source_name, page_url, source_name))
+        host = "" if source_name.strip().lower() in AGGREGATOR_SOURCES else source_name
+        out.append(_row(title, desc, when, "", host, page_url, source_name))
         if len(out) >= 20:
             break
     return out
@@ -387,7 +427,21 @@ def parse_tribe(payload: dict[str, Any], page_url: str, source_name: str) -> lis
             venue = str(venue_obj.get("venue") or venue_obj.get("name") or "")
         desc = strip_html(str(e.get("description") or e.get("excerpt") or ""))
         link = str(e.get("url") or page_url)
-        out.append(_row(title, desc, when, venue, source_name, link, source_name))
+        # Host: the listing's organizer, else the "Event: Host" title part for
+        # aggregators (Observer), else the presenting venue itself (The Ark).
+        org_names = [
+            str(o.get("organizer") or "").strip()
+            for o in (e.get("organizer") or [])
+            if isinstance(o, dict)
+        ]
+        org = next((n for n in org_names if n and not is_platform(n)), "")
+        if not org:
+            if source_name.strip().lower() in AGGREGATOR_SOURCES or is_platform(source_name):
+                org = split_host_title(title)[1]
+            else:
+                org = source_name
+        cost = parse_cost(str(e.get("cost") or ""))
+        out.append(_row(title, desc, when, venue, org, link, source_name, None, cost))
         if len(out) >= 40:
             break
     return out
@@ -449,7 +503,7 @@ def parse_eventbrite(html: str, page_url: str) -> list[dict[str, Any]]:
             if desc and "<" in desc:
                 desc = strip_html(desc)
             link = str(e.get("url") or page_url)
-            org = "Eventbrite host"
+            org = ""    # the page only has primary_organizer_id; Eventbrite is not the host
             tags = e.get("tags") or []
             tag_blob = " ".join(
                 str(t.get("display_name") or t.get("prefix") or "")

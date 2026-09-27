@@ -41,3 +41,23 @@ test "duplicate keys: same title and time across sources match" {
     assert time_slot("2026-10-02") == "2026-10-02";
     assert time_slot("Fri 8:00 PM") == "fri 8:00 pm";
 }
+
+test "price is only Free when the source says so" {
+    assert guess_price("Reggaeton Latin Fridays") == -1.0;
+    assert guess_price("Is There a Cure For Racism? (Free Event)") == 0.0;
+    assert guess_price("Free parking available") == -1.0;
+    assert guess_price("Tickets $25 at the door") == 25.0;
+    assert parse_cost("$40.00") == 40.0;
+    assert parse_cost("Free") == 0.0;
+    assert parse_cost("") == -1.0;
+}
+
+test "ticketing and listing platforms are never hosts" {
+    assert is_platform("Eventbrite host");
+    assert is_platform("Eventbrite Ann Arbor");
+    assert is_platform("Ann Arbor Observer");
+    assert is_platform("Observer Editor");
+    assert not is_platform("The Ark");
+    assert not is_platform("UMS");
+    assert not is_platform("Ann Arbor Running Company (AARC)");
+}

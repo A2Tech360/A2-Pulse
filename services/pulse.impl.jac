@@ -319,8 +319,9 @@ impl _passes(n: PulseNode, spec: FilterSpec, clat: float, clng: float) -> bool {
         }
     }
     if n.kind == "event" {
-        if spec.price == "free" and n.price > 0.0 { return False; }
-        if spec.price == "under10" and n.price >= 10.0 { return False; }
+        # Unknown prices (-1) match neither "Free" nor "Under $10".
+        if spec.price == "free" and n.price != 0.0 { return False; }
+        if spec.price == "under10" and (n.price < 0.0 or n.price >= 10.0) { return False; }
     }
     if spec.distance > 0.0 and n.lat != 0.0 {
         if _miles(clat, clng, n.lat, n.lng) > spec.distance { return False; }
@@ -700,6 +701,9 @@ impl _action_for(n: PulseNode, reasons: list[str], commute: str) -> str {
     if n.kind == "civic" {
         return "Sign up for public comment or email Council: " + when_txt + ".";
     }
+    if n.price < 0.0 {
+        return "Check the listing for tickets, then save it for " + when_txt + ".";    # price unknown
+    }
     if n.price == 0.0 {
         return "Free. Save it to your calendar for " + when_txt + ".";
     }
@@ -722,6 +726,9 @@ impl _bus_action_for(n: PulseNode, reasons: list[str]) -> str {
     }
     if n.kind == "civic" {
         return "Sign up for public comment or email Council: " + when_txt + ".";
+    }
+    if n.price < 0.0 {
+        return "Check the listing for tickets, then plan the bus for " + when_txt + ".";    # price unknown
     }
     if n.price == 0.0 {
         return "Free. Save it for " + when_txt + " and check the bus times.";
@@ -1182,6 +1189,9 @@ impl GenerateBrief.rank {
         }
     }
     for o in follows {
+        if is_platform(o.name) {
+            continue;    # a ticketing/listing platform is not a host you follow
+        }
         for x in [o <-:OrganizedBy:<-][?:PulseNode] {
             bump(x, 2.0, "From " + o.name + ", which you follow", "follows");
         }
@@ -1550,6 +1560,9 @@ impl onboarding_options() -> dict {
     places = [{"key": pl.key, "name": pl.name, "lat": pl.lat, "lng": pl.lng} for pl in [hub -->][?:Place]];
     orgs: list[dict] = [];
     for o in [hub -->][?:Organizer] {
+        if is_platform(o.name) {
+            continue;    # Eventbrite, the Observer... are sources, not hosts to follow
+        }
         cats: list[str] = [];
         for x in [o <-:OrganizedBy:<-][?:PulseNode] {
             for c in _cats_of(x) {
@@ -1609,7 +1622,7 @@ impl save_profile(
     }
     for k in follows {
         org = _find_key(k);
-        if org is not None and org.kind == "organizer" {
+        if org is not None and org.kind == "organizer" and not is_platform(org.name) {
             prof +>:Follows():+> org;
         }
     }
@@ -1911,7 +1924,7 @@ def _heuristic_map_overview(n: PulseNode) -> MapOverview {
     tip = friendly_when(n.when) if n.when else "";
     if n.kind == "alert" and not tip {
         tip = "Check before you leave.";
-    } elif n.kind == "event" and n.price == 0.0 {
+    } elif n.kind == "event" and n.price == 0.0 and n.sub == "free" {
         tip = "Free — good drop-in.";
     } elif n.kind == "event" and n.price > 0.0 {
         tip = "Ticketed · about $" + str(int(n.price));

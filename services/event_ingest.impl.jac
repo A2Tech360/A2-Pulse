@@ -15,7 +15,8 @@ import from services.event_parse {
     guess_price,
     clip,
     norm_title,
-    time_slot
+    time_slot,
+    is_platform
 }
 
 glob INGEST_FEEDS: list[dict] = [
@@ -248,7 +249,7 @@ def _dict_to_raw(d: dict) -> RawEvent {
         when=str(d.get("when", "")),
         venue=str(d.get("venue", "")),
         organizer=str(d.get("organizer", "")),
-        price=float(d.get("price", 0.0) if d.get("price", 0.0) is not None else 0.0),
+        price=float(d.get("price", -1.0) if d.get("price", -1.0) is not None else -1.0),
         categories=cats,
         source_url=str(d.get("source_url", "")),
         day=int(d.get("day", -1) if d.get("day", -1) is not None else -1)
@@ -359,9 +360,12 @@ def _upsert_event(hub: Hub, raw: RawEvent, src: SourceDoc) -> str {
         cats = guess_cats(name, raw.desc, src.name);
     }
     price = raw.price if raw.price >= 0.0 else guess_price(name + " " + raw.desc);
+    sub = "free" if price == 0.0 else ("paid" if price > 0.0 else "");
     ven = _ensure_venue(hub, raw.venue + " " + name + " " + raw.desc);
-    org_name = raw.organizer if raw.organizer else src.name;
-    org = _ensure_organizer(hub, org_name, ven);
+    # The real host only: a ticketing/listing platform (Eventbrite, the Observer) is a
+    # source, never an organizer, and there is no source-name fallback any more.
+    org_name = raw.organizer.strip() if raw.organizer and not is_platform(raw.organizer) else "";
+    org: Organizer | None = _ensure_organizer(hub, org_name, ven) if org_name else None;
     desc = clip(raw.desc if raw.desc else ("Listed on " + src.name + "."), 280);
     url = raw.source_url if raw.source_url else src.source_url;
     existing = _find_event(hub, key);
@@ -380,7 +384,13 @@ def _upsert_event(hub: Hub, raw: RawEvent, src: SourceDoc) -> str {
         existing.address = ven.address;
         existing.source_name = src.name;
         existing.source_url = url;
-        existing.sub = "free" if price == 0.0 else "paid";
+        existing.sub = sub;
+        for e in [edge existing ->:OrganizedBy:->] {
+            del e;
+        }
+        if org is not None {
+            existing +>:OrganizedBy():+> org;
+        }
         # Re-tag on every sync so fixes to the category rules reach stored events.
         for e in [edge existing ->:TaggedAs:->] {
             del e;
@@ -402,11 +412,13 @@ def _upsert_event(hub: Hub, raw: RawEvent, src: SourceDoc) -> str {
         address=ven.address,
         source_name=src.name,
         source_url=url,
-        sub=("free" if price == 0.0 else "paid")
+        sub=sub
     );
     hub ++> ev;
     ev +>:HostedAt():+> ven;
-    ev +>:OrganizedBy():+> org;
+    if org is not None {
+        ev +>:OrganizedBy():+> org;
+    }
     ev +>:SourcedFrom():+> src;
     _tag(hub, ev, cats);
     return "created";
