@@ -1309,13 +1309,14 @@ impl MapSnapshot.pin {
     plng: float = here.lng;
     where_lbl: str = here.address if here.address else here.name;
     if plat == 0.0 and plng == 0.0 {
-        pin = _resolve_pin_coords(here);
-        if pin is None {
+        # "coords", not "pin": a local named pin shadowed this ability (jac check E1001).
+        coords: dict | None = _resolve_pin_coords(here);
+        if coords is None {
             return;
         }
-        plat = float(pin["lat"]);
-        plng = float(pin["lng"]);
-        where_lbl = str(pin["label"]) if pin["label"] else where_lbl;
+        plat = float(str(coords["lat"]));
+        plng = float(str(coords["lng"]));
+        where_lbl = str(coords["label"]) if coords["label"] else where_lbl;
     }
     if not on_route and spec.distance > 0.0 {
         if _miles(self.clat, self.clng, plat, plng) > spec.distance {
