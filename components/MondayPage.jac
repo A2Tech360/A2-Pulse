@@ -222,7 +222,8 @@ def:pub MondayPage() -> JsxElement {
         voice_note = "";
         res: dict = {"audio": "", "error": ""};
         try {
-            res = await with_timeout(speak_brief(target_persona(persona), voice_id), {"audio": "", "error": "timeout", "code": "timeout"});
+            # 12 s, not the usual 8: ElevenLabs needs ~5 s for a full brief, plus a cold voice-list check.
+            res = await with_timeout(speak_brief(target_persona(persona), voice_id), {"audio": "", "error": "timeout", "code": "timeout"}, 12000);
         } except Exception {
             res = {"audio": "", "error": "Voice request failed"};
         }

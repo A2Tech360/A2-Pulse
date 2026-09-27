@@ -92,15 +92,17 @@ def:pub FilterBar(
         asking = True;
         askError = "";
         try {
-            prior = FilterSpec(
-                query=filters["query"] or "",
-                categories=cats,
-                kinds=kinds,
-                price=price,
-                time=time,
-                distance=distance,
-                reply=""
-            );
+            # Plain dict: FilterSpec is a server type with no constructor in the browser
+            # bundle (new FilterSpec threw, so Ask always failed). The server builds it.
+            prior: any = {
+                "query": filters["query"] or "",
+                "categories": cats,
+                "kinds": kinds,
+                "price": price,
+                "time": time,
+                "distance": distance,
+                "reply": ""
+            };
             spec = await converse_query(text, prior);
             onChange(
                 {
