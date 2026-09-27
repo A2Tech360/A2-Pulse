@@ -526,7 +526,7 @@ impl GenerateBrief.rank {
         if delta >= 0 and delta <= 2 and n.kind in ["civic", "alert"] {
             scores[k] = scores[k] + 0.6;
             reasons[k].append("Coming up in the next " + str(delta + 1) + " days");
-            rules[k].append({"rule": "soon", "points": 0.6, "detail": "Civic or alert within 3 days"});
+            rules[k].append({"rule": "soon", "points": 0.6, "detail": reasons[k][-1]});
         }
     }
     ranked = sorted(list(scores.keys()), key=lambda (k: str) -> float { return scores[k]; }, reverse=True);
@@ -564,6 +564,8 @@ impl GenerateBrief.rank {
     ];
     trace["actions"] = [{"key": it.key, "name": it.name, "action": it.action} for it in items];
     trace["llm"] = {"on": pulse_llm.llm_enabled(), "model": pulse_llm.llm_model_label()};
+    # The "soon" rule and date wording depend on the weekday the brief ran.
+    trace["today"] = {"date": datetime.now().date().isoformat(), "weekday": today};
     timing: dict[str, float] = {
         "profile_ms": ms(t_start, t_profile), "relevance_ms": ms(t_profile, t_score), "actions_ms": ms(t_score, t_actions)
     };
@@ -580,7 +582,7 @@ impl GenerateBrief.rank {
 
     # Editor stage: LLM (8s deadline) or template, always passed through speakable().
     editor_items: list[dict] = [
-        {"name": it.name, "kind": it.kind, "when": it.when, "reasons": reasons[it.key], "action": it.action}
+        {"name": it.name, "kind": it.kind, "when": it.when, "reasons": strongest_first(reasons[it.key], rules[it.key]), "action": it.action}
         for it in items
     ];
     profile = here.name + ", lives in " + home_name + ", commutes by " + here.commute + ", into " + ", ".join(interest_names);

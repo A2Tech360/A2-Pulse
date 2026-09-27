@@ -13,7 +13,7 @@ import from services.seed_data {
     SOURCES, CATEGORIES, PLACES, VENUES, ORGANIZERS, EVENTS, ALERTS, CIVIC, PERSONAS
 }
 import from services { pulse_llm }
-import from services.brief_editor { edit_brief }
+import from services.brief_editor { edit_brief, strongest_first }
 import from services.speakable { speakable }
 import from services.brief_trace { new_trace, append_trace, ms, sum_by_rule }
 

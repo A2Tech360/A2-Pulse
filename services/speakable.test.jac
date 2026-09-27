@@ -169,3 +169,8 @@ test "empty text stays empty" {
     assert sp("") == "";
     assert sp("   ") == "";
 }
+
+test "brand names read as words" {
+    assert sp("Check TheRide trip planner") == "Check The Ride trip planner";
+    assert sp("Jazz Brunch at Blue LLama") == "Jazz Brunch at Blue Llama";
+}

@@ -65,6 +65,8 @@ glob PHRASES: list[list[str]] = [
     [r"\bUMS\b", "University Musical Society"],
     [r"\bSEAS\b", "School for Environment and Sustainability"],
     [r"\bA2\b", "Ann Arbor"],
+    [r"\bTheRide\b", "The Ride"],
+    [r"\bLLama\b", "Llama"],
     [r",\s*MI\b", ", Michigan"],
     [r"\be\.g\.,?", "for example"],
     [r"\bi\.e\.,?", "that is"],

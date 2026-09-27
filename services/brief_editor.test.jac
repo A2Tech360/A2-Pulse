@@ -111,3 +111,40 @@ test "provider detection" {
     assert pulse_llm.llm_provider("ollama/llama3.1") == "ollama";
     assert pulse_llm.llm_provider("mystery-model") == "";
 }
+
+test "template never trims the time of an alert or civic item" {
+    long_items: list[dict[str, any]] = [
+        {**it, "reasons": list(it["reasons"]) + ["Coming up in the next 2 days", "From City of Ann Arbor, which you follow"]}
+        for it in ITEMS
+    ];
+    out = template_brief("Jordan", long_items, TODAY);
+    assert word_count(out) <= 165, word_count(out);
+    for it in long_items {
+        if str(it["when"]) not in str(it["action"]) {
+            assert speakable(str(it["when"]), TODAY) in out, f"{it['when']} missing from: {out}";
+        }
+    }
+    assert "Wednesday to Friday, 7 a.m. to 5 p.m." in out;
+    assert "Saturday afternoon" in out;
+}
+
+test "reasons are ordered strongest first" {
+    rules: list[dict[str, any]] = [
+        {"rule": "interest", "points": 1.5, "detail": "Matches your interest in music"},
+        {"rule": "follows", "points": 2.0, "detail": "From U-M Jazz Collective, which you follow"},
+        {"rule": "near_venue", "points": 1.0, "detail": "Close by at The Ark"},
+        {"rule": "near_venue", "points": 1.0, "detail": "Close by at The Ark"}
+    ];
+    got = strongest_first(["Matches your interest in music", "Close by at The Ark", "From U-M Jazz Collective, which you follow"], rules);
+    # The double-counted "Close by" counts once, so it does not tie with the follow.
+    assert got == ["From U-M Jazz Collective, which you follow", "Matches your interest in music", "Close by at The Ark"], got;
+}
+
+test "unlabeled reasons read as sentences and mid-sentence times are lowercase" {
+    one: list[dict[str, any]] = [{"name": "State St sidewalk closure", "kind": "alert", "when": "All week", "reasons": ["From City of Ann Arbor, which you follow"], "action": "Use the east side crossing."}];
+    out = template_brief("Luis", one, TODAY);
+    assert "State Street sidewalk closure, all week." in out, out;
+    assert _why_sentence("from Michigan Hiking Club, which you follow") == "It's from Michigan Hiking Club, which you follow";
+    assert _why_sentence("affects Central Campus, where you live or travel") == "It affects Central Campus, where you live or travel";
+    assert _mid_sentence("Thu all day") == "Thu all day";
+}
