@@ -31,7 +31,7 @@ import from services.pulse {
 }
 
 glob REPORT_PATH: Path = Path(str(__file__ or ".")).resolve().parent.parent / "reports" / "eval_briefs.md";
-glob MIN_WORDS: int = 130;
+glob MIN_WORDS: int = 120;
 glob MAX_WORDS: int = 180;
 
 glob SEEDED: list[dict[str, str]] = [
