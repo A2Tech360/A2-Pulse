@@ -7,6 +7,8 @@ comes from LLM_MODEL like the app, so the same command re-runs the eval once a
 model is set. Exit code 1 when any profile fails a check.
 """
 
+# First: normalize an empty or "off" LLM_MODEL before any module with `by llm` loads.
+import services.llm_env;
 import os;
 import re;
 import io;

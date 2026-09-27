@@ -16,6 +16,8 @@ import re;
 import time;
 import from pathlib { Path }
 import threading;
+# Must come before any byLLM import: empty/off LLM_MODEL would otherwise crash it.
+import from services.llm_env { llm_model_off }
 import from jaclang.byllm.lib { Model }
 
 glob LLM_TIMEOUT_S: float = 8.0;
@@ -96,9 +98,13 @@ def llm_provider(model: str) -> str {
 
 """Decide once whether the LLM is on. LLM_API_KEY is a generic override for any provider."""
 def _resolve_status -> dict[str, any] {
-    model = os.environ.get("LLM_MODEL", "").strip();
-    if not model {
+    raw = os.environ.get("LLM_MODEL");
+    model = (raw or "").strip();
+    if raw is None or model == "" {
         return {"on": False, "model": "", "provider": "", "reason": "LLM_MODEL is not set"};
+    }
+    if llm_model_off(model) {
+        return {"on": False, "model": "", "provider": "", "reason": "LLM_MODEL is off"};
     }
     provider = llm_provider(model);
     generic = os.environ.get("LLM_API_KEY", "").strip();
@@ -233,7 +239,7 @@ def diagnose(probe: bool = True) -> dict[str, any] {
     ambient = "";
     try {
         import from jaclang.byllm.config_loader { get_byllm_config }
-        ambient = str(get_byllm_config().get_model_config().get("default_model", ""));
+        ambient = os.environ.get("BYLLM_DEFAULT_MODEL", "").strip() or str(get_byllm_config().get_model_config().get("default_model", ""));
     } except Exception {
         ambient = "unknown";
     }

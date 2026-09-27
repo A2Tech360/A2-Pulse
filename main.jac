@@ -1,5 +1,7 @@
 """A2 Pulse - Ann Arbor's living local graph. Entry: endpoints + router."""
 
+# First: an empty or "off" LLM_MODEL must be normalized before any module with `by llm` loads.
+import services.llm_env;
 import from services.pulse {
     EgoSnapshot, NetworkBrowse, MapSnapshot, SearchArchive, GetDossier, GenerateBrief,
     Feedback,

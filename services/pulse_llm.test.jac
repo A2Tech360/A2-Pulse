@@ -52,3 +52,19 @@ test "every LLM call error is redacted, so traces and logs never carry key hints
     assert not res["ok"];
     assert "sk-bogus" not in str(res["error"]) and "[redacted]" in str(res["error"]), res["error"];
 }
+
+test "empty or off LLM_MODEL means the LLM is off, even with a key" {
+    for v in ["", "off", "OFF", " none ", "false", "0", "disabled"] {
+        assert llm_model_off(v), v;
+    }
+    assert not llm_model_off("gpt-4o-mini");
+    saved = os.environ.get("LLM_MODEL");
+    os.environ["LLM_API_KEY"] = "sk-test-000000000000000";
+    os.environ["LLM_MODEL"] = "off";
+    st = _resolve_status();
+    assert not st["on"] and st["reason"] == "LLM_MODEL is off";
+    os.environ["LLM_MODEL"] = "";
+    assert not _resolve_status()["on"];
+    os.environ.pop("LLM_API_KEY", None);
+    if saved is None { os.environ.pop("LLM_MODEL", None); } else { os.environ["LLM_MODEL"] = saved; }
+}
