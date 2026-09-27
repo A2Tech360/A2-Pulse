@@ -12,6 +12,8 @@ import from services.seed_data {
     SOURCES, CATEGORIES, PLACES, VENUES, ORGANIZERS, EVENTS, ALERTS, CIVIC, PERSONAS
 }
 import from services { pulse_llm }
+import from services.brief_editor { edit_brief }
+import from services.speakable { speakable }
 
 # ---------------------------------------------------------------- nodes
 node Hub {
@@ -48,7 +50,10 @@ node UserProfile {
     has persona: str = "",
         name: str = "",
         commute: str = "walk",
-        weights: dict[str, float] = {};
+        weights: dict[str, float] = {},
+        # Last spoken brief (already speakable), so speak_brief can read it server-side.
+        last_summary: str = "",
+        last_summary_at: str = "";
 }
 
 # ---------------------------------------------------------------- edges
@@ -176,11 +181,7 @@ sem llm_parse_filters = "Turn an Ann Arbor resident's natural-language request i
 sem llm_parse_filters.text = "The user's request.";
 sem llm_parse_filters.prior = "The filters currently active in the app.";
 sem llm_parse_filters.allowed_categories = "The only category names that may appear in categories.";
-
-def llm_write_brief(profile: str, items: str) -> str by pulse_llm.brief_llm(temperature=0.4, max_tokens=320);
-sem llm_write_brief = "Write a warm, spoken-style Monday morning brief (about 90-120 words) for this Ann Arbor resident covering the numbered items in order. Mention why each matters and what to do. Plain text, no markdown, no emojis.";
-sem llm_write_brief.profile = "Who the brief is for: persona, home area, commute, interests.";
-sem llm_write_brief.items = "The ranked items with reasons and actions.";
+# The Editor's spoken-brief prompt lives in services/brief_editor.jac (llm_write_brief).
 
 # ---------------------------------------------------------------- helpers (bodies in pulse.impl.jac)
 def _has_llm -> bool;
@@ -313,8 +314,10 @@ def:pub geocode_address(query: str) -> PlaceSuggestion;
 
 """Read text aloud with ElevenLabs (ELEVENLABS_API_KEY / _VOICE_ID / _MODEL).
 voice_id picks the voice actor; empty uses ELEVENLABS_VOICE_ID or the default.
+With empty text and a persona, reads that persona's last generated brief.
+Text always goes through speakable() first.
 Returns {"audio": "data:audio/mpeg;base64,...", "error": ""}; audio is "" when unavailable."""
-def:pub speak_brief(text: str, voice_id: str = "") -> dict;
+def:pub speak_brief(text: str, voice_id: str = "", persona: str = "") -> dict;
 
 """Voice actors for the brief: the account's voices when the key has voices_read,
 otherwise a curated set of ElevenLabs premade voices. Each: {id, name, desc}."""

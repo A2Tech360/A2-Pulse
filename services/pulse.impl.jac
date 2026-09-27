@@ -531,33 +531,17 @@ impl GenerateBrief.rank {
     }
     home_name = homes[0].name if len(homes) > 0 else "Ann Arbor";
     interest_names = [c.name for c in interests];
-    lines: list[str] = [];
-    i = 1;
-    for it in items {
-        lines.append(str(i) + ". " + it.name + " (" + it.when + "): " + it.why + " " + it.action);
-        i += 1;
-    }
-    summary = "";
-    used_ai = False;
-    if self.use_ai and _has_llm() {
-        profile = here.name + ", lives in " + home_name + ", commutes by " + here.commute + ", into " + ", ".join(interest_names);
-        res = pulse_llm.call_with_deadline(llm_write_brief, [profile, "\n".join(lines)]);
-        if res["ok"] and str(res["value"] or "").strip() {
-            summary = str(res["value"]).strip();
-            used_ai = True;
-        }
-    }
-    if summary == "" {
-        first = here.name.split(",")[0];
-        parts: list[str] = ["Good morning " + first + ". Here is what touches your week in Ann Arbor."];
-        j = 1;
-        for it in items {
-            parts.append("Number " + str(j) + ": " + it.name + ", " + it.when + ". " + it.action);
-            j += 1;
-        }
-        parts.append("That is your Monday. Have a good week.");
-        summary = " ".join(parts);
-    }
+    # Editor stage: LLM (8s deadline) or template, always passed through speakable().
+    editor_items: list[dict] = [
+        {"name": it.name, "kind": it.kind, "when": it.when, "reasons": reasons[it.key], "action": it.action}
+        for it in items
+    ];
+    profile = here.name + ", lives in " + home_name + ", commutes by " + here.commute + ", into " + ", ".join(interest_names);
+    edited = edit_brief(here.name.split(",")[0], profile, editor_items, self.use_ai);
+    summary: str = edited["spoken"];
+    used_ai: bool = edited["mode"] == "llm";
+    here.last_summary = summary;
+    here.last_summary_at = datetime.now().isoformat(timespec="seconds");
     report Brief(
         persona=here.persona, profile_name=here.name, home=home_name, commute=here.commute,
         interests=interest_names, summary=summary, ai=used_ai, items=items
@@ -783,12 +767,19 @@ glob PREMADE_VOICES: list[dict] = [
     {"id": "pFZP5JQG7iQjIQuC4Bku", "name": "Lily", "desc": "Velvety British"}
 ];
 
-impl speak_brief(text: str, voice_id: str = "") -> dict {
+impl speak_brief(text: str, voice_id: str = "", persona: str = "") -> dict {
     key = os.environ.get("ELEVENLABS_API_KEY", "").strip();
     if not key {
         return {"audio": "", "error": "ELEVENLABS_API_KEY is not set"};
     }
-    text = text.strip()[:TTS_MAX_CHARS];
+    if not text.strip() and persona {
+        _ensure_seed();
+        want = persona;
+        for prof in [root -->][?:UserProfile][?persona == want] {
+            text = prof.last_summary;
+        }
+    }
+    text = speakable(text)[:TTS_MAX_CHARS];
     if not text {
         return {"audio": "", "error": "Nothing to read"};
     }
