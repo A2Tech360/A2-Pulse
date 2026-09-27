@@ -92,3 +92,20 @@ test "no trace without debug, and score_only stores and logs nothing" {
     assert profile_of("shop").last_summary == stored;
     assert not any([str(s.trace["id"]) in l for l in log_lines()]);
 }
+
+test "converse_query uses the llm filter parser and sanitizes its output" {
+    fake = FilterSpec(categories=["music", "not-a-category"], kinds=["event", "bogus"], price="cheap", time="soon", reply="");
+    pulse_llm.set_llm(MockLLM(model_name="mockllm", config={"outputs": [fake]}), "mockllm");
+    spec = converse_query("jazz tonight", FilterSpec());
+    pulse_llm.set_llm(None);
+    assert spec.categories == ["music"];
+    assert spec.kinds == ["event"];
+    assert spec.price == "any" and spec.time == "week";
+    assert spec.query == "jazz tonight" and spec.reply == "Updated your view.";
+}
+
+test "converse_query falls back to the heuristic when the llm is off" {
+    pulse_llm.set_llm(None);
+    spec = converse_query("free jazz this weekend", FilterSpec());
+    assert spec.price == "free" and "music" in spec.categories and spec.time == "weekend";
+}
