@@ -13,7 +13,9 @@ import from services.event_parse {
     parse_day,
     guess_cats,
     guess_price,
-    clip
+    clip,
+    norm_title,
+    time_slot
 }
 
 glob INGEST_FEEDS: list[dict] = [
@@ -363,6 +365,9 @@ def _upsert_event(hub: Hub, raw: RawEvent, src: SourceDoc) -> str {
     desc = clip(raw.desc if raw.desc else ("Listed on " + src.name + "."), 280);
     url = raw.source_url if raw.source_url else src.source_url;
     existing = _find_event(hub, key);
+    if existing is None and _find_same_listing(hub, name, ven, when) is not None {
+        return "skip";    # same title, venue and time already listed by another source
+    }
     if existing {
         existing.name = name;
         existing.desc = desc;
@@ -405,6 +410,18 @@ def _upsert_event(hub: Hub, raw: RawEvent, src: SourceDoc) -> str {
     ev +>:SourcedFrom():+> src;
     _tag(hub, ev, cats);
     return "created";
+}
+
+"""An existing event with the same title, venue and time (from any source)."""
+def _find_same_listing(hub: Hub, name: str, ven: Venue, when: str) -> Event | None {
+    nt = norm_title(name);
+    slot = time_slot(when);
+    for ev in [ven <-:HostedAt:<-][?:Event] {
+        if norm_title(ev.name) == nt and time_slot(ev.when) == slot {
+            return ev;
+        }
+    }
+    return None;
 }
 
 def _tag(hub: Hub, ev: Event, cats: list[str]) {

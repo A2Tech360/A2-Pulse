@@ -1201,7 +1201,20 @@ impl GenerateBrief.rank {
             rules[k].append({"rule": "soon", "points": 0.6, "detail": reasons[k][-1]});
         }
     }
-    ranked = sorted(list(scores.keys()), key=lambda (k: str) -> float { return scores[k]; }, reverse=True);
+    ranked_all = sorted(list(scores.keys()), key=lambda (k: str) -> float { return scores[k]; }, reverse=True);
+    # One item per listing: the same title at the same venue (a duplicate from
+    # another source, or another night of the same show) keeps only its best score.
+    ranked: list[str] = [];
+    seen_listing: list[str] = [];
+    for k in ranked_all {
+        ven = _venue_of(nodes[k]);
+        lk = nodes[k].kind + "|" + norm_title(nodes[k].name) + "|" + (ven.key if ven else "");
+        if lk in seen_listing {
+            continue;
+        }
+        seen_listing.append(lk);
+        ranked.append(k);
+    }
     t_score = time.perf_counter();
 
     # Action agent: a to-do for each of the top five.
@@ -1239,6 +1252,7 @@ impl GenerateBrief.rank {
     # The "soon" rule and date wording depend on the weekday the brief ran.
     trace["today"] = {"date": datetime.now().date().isoformat(), "weekday": today};
     trace["week"] = {"monday": monday.isoformat(), "dropped_outside_week": len(dropped)};
+    trace["duplicates_collapsed"] = len(ranked_all) - len(ranked);
     timing: dict[str, float] = {
         "profile_ms": ms(t_start, t_profile), "relevance_ms": ms(t_profile, t_score), "actions_ms": ms(t_score, t_actions)
     };

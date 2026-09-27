@@ -465,3 +465,23 @@ def parse_eventbrite(html: str, page_url: str) -> list[dict[str, Any]]:
             if len(out) >= 50:
                 return out
     return out
+
+
+def norm_title(title: str) -> str:
+    """Title for duplicate checks: lowercase words only, no quotes/punctuation, no leading "the"."""
+    t = unescape(title or "").lower()
+    t = re.sub(r"[^a-z0-9]+", " ", t).strip()
+    t = re.sub(r"^the ", "", t)
+    return re.sub(r"\s+", " ", t)
+
+
+def time_slot(when: str) -> str:
+    """When text reduced to a comparable slot: "2026-10-10 19:30" for ISO date-times,
+    the ISO date when only a date is known, else the lowercased text."""
+    text = (when or "").strip()
+    m = re.match(r"^(\d{4}-\d{2}-\d{2})(?:[T ](\d{1,2}):(\d{2}))?", text)
+    if m:
+        if m.group(2) is not None:
+            return f"{m.group(1)} {int(m.group(2)):02d}:{m.group(3)}"
+        return m.group(1)
+    return re.sub(r"\s+", " ", text.lower())

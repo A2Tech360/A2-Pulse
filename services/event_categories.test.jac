@@ -32,3 +32,12 @@ test "Eventbrite bucket is only a fallback" {
     assert guess_cats("Mystery Night Thing", "", "Eventbrite Ann Arbor", ["nightlife"]) == ["nightlife"];
     assert guess_cats("Gandy Dancer Caymus Vineyards Wine Dinner", "", "Eventbrite Ann Arbor", ["music"]) == ["food"];
 }
+
+test "duplicate keys: same title and time across sources match" {
+    assert norm_title("“The Tallest Man on Earth”") == norm_title("Tallest Man On Earth");
+    assert norm_title("The Ark’s Open Stage") == "ark s open stage";
+    assert time_slot("2026-10-02 20:00:00") == time_slot("2026-10-02T20:00");
+    assert time_slot("2026-10-02 20:00") != time_slot("2026-10-03 20:00");
+    assert time_slot("2026-10-02") == "2026-10-02";
+    assert time_slot("Fri 8:00 PM") == "fri 8:00 pm";
+}
