@@ -189,3 +189,17 @@ test "acronyms reach the LLM already expanded" {
     assert "University Musical Society Symphony: Rachmaninoff 2" in text, text;
     assert "12 dollars" in text and "Sunday at 4 p.m." in text and "UMS" not in text, text;
 }
+
+test "an LLM brief that copies the style example falls back to the template" {
+    copied = "Good morning Jordan. It's a pretty easy week. " + " ".join(["Plymouth Road is down to one lane."] * 10) + " Friday night, SCOR has a homecoming pregame at ten. Have a good week.";
+    mock([copied]);
+    out = edit_brief("Jordan", "Jordan", ITEMS, True, TODAY);
+    pulse_llm.set_llm(None);
+    assert out["mode"] == "template";
+    assert "style example" in str(out["error"]), out["error"];
+}
+
+test "the LLM sees items grouped: getting around, worth your time, civic" {
+    text = editor_items_text(ITEMS, TODAY);
+    assert text.index("Getting around:") < text.index("Worth your time:") < text.index("Civic:"), text;
+}

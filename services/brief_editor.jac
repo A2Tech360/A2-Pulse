@@ -19,24 +19,30 @@ glob LLM_MIN_WORDS: int = 60;
 # the brief on any day), are replaced by the template.
 glob LLM_MAX_WORDS: int = 180;
 glob RELATIVE_DAY_WORDS: str = r"(?i)\b(today|tonight|tomorrow)\b";
+# Phrases that exist only in the prompt's style example; seeing one means the LLM copied it.
+glob STYLE_EXAMPLE_ONLY: str = r"(?i)\b(SCOR|homecoming pregame|North Fourth Avenue|cut over on Fifth|Packard bike lanes)\b";
 
 
-def llm_write_brief(profile: str, items: str, week_of: str) -> str by pulse_llm.brief_llm(temperature=0.3, max_tokens=300);
-sem llm_write_brief = """You are the Editor for A2 Pulse, writing the weekly audio brief for one Ann Arbor resident, for the week of week_of (a Monday). A text-to-speech voice reads it aloud, so write for the ear, not the eye.
-Length: 125 to 145 words, never more than 150. Budget about 25 words per item plus a one-line greeting and a short sign-off, and count before you answer.
-Cover every numbered item, in the given order; a brief that leaves out any item is wrong. For each one say what it is and when, why it matters to this person, and the one thing to do about it. Reasons are listed strongest first; lead with the first one.
-Stick to the facts in the items: keep each item's name as given, and never add or reinterpret details (no guesses about what a title means, who performs, prices, places or times that are not in the item).
-Every weekday in the items falls in the week of week_of. Say days by name (Monday, Tuesday), including for Monday items: say Monday evening or on Monday at 7 p.m. Never say today, tonight, tomorrow, this morning or this evening: the listener may hear this on any day, including the weekend before. Keep every day and time range complete, such as Wednesday to Friday, 7 a.m. to 5 p.m.
-Tone: friendly and direct, like a neighbor who did the homework. Short sentences. Call the listener you. Open with a one-line greeting using their first name (if the name is You or missing, just say Good morning, with no name or stand-in like resident) and close with a short sign-off.
-Spoken-text rules, all mandatory:
-- No abbreviations. Write Road, Street, Avenue, Boulevard, Drive, Highway, Parkway; North, South, East, West; University of Michigan, not U-M; Monday, not Mon; Saint or Doctor where that is what St. or Dr. means.
-- No symbols. Write and instead of &, at instead of @, 15 dollars instead of $15, percent instead of %.
-- No URLs, emoji, markdown, bullet points, numbered lists, headings or parentheses.
-- Times read naturally, like 7 p.m., 7:30 a.m. or noon. Dates like Tuesday, September 29th.
-- Plain sentences only.""";
+def llm_write_brief(profile: str, items: str, week_of: str) -> str by pulse_llm.brief_llm(temperature=0.5, max_tokens=400);
+sem llm_write_brief = """You are the Editor for A2 Pulse. Write the weekly audio brief for one Ann Arbor resident, for the week of week_of (a Monday), the way a friend who knows Ann Arbor would talk them through their week. A text-to-speech voice reads it aloud, so write for the ear.
+Shape:
+- Greeting with their first name (if the name is You or missing, just Good morning), then ONE sentence that sets up the week: what kind of week it is (busy, a quiet one, one thing to watch).
+- Then talk through the items by group, in this order: getting around (closures, detours, transit), things worth your time (events and clubs), civic (council votes, hearings). Skip a group that has no items. Cover every item; leaving one out is wrong.
+- No numbering and no labels: never First, Second, Third, And finally, Why it matters, The reason.
+- Weave the reason into the sentence (since you follow the hiking club, right on your bike route, close to home) instead of stating it separately. Use the strongest reason, listed first. Never use the same reason phrase twice.
+- One concrete action per item, phrased naturally and varied (worth adding to your calendar, leave five minutes early, worth a look if you have opinions).
+- Smooth transitions between items (On the fun side, Later in the week, Over the weekend, One more thing).
+- Times the way a person says them (Friday night at ten, Sunday afternoon at two, Monday evening at seven). Mention a price only when the item states one or says free.
+- Close with one short, warm line (Have a good week). Never That's your Monday.
+Length: 130 to 170 words, never more than 175. Count before you answer.
+Facts: use only what the items say. Keep each item's name as given; never add or reinterpret details, places, prices, performers or times.
+Days: every weekday in the items falls in the week of week_of. Say days by name, including for Monday items (Monday evening at seven). Never say today, tonight, tomorrow, this morning or this evening: the listener may hear this on any day, including the weekend before. Keep day and time ranges complete, such as Wednesday to Friday, 7 a.m. to 5 p.m.
+Spoken-text rules, all mandatory: no abbreviations (Road, Street, Avenue; North, South, East, West; University of Michigan, not U-M; Monday, not Mon); no symbols (and, not &; 15 dollars, not $15); no URLs, emoji, markdown, lists, headings or parentheses; plain sentences only.
+STYLE EXAMPLE, for tone and shape only. Its places, events and people are not this listener's and must never appear in your brief:
+"Good morning. It's a pretty easy week, with one thing to plan around. If you bike through Kerrytown, North Fourth Avenue is down to one lane until Thursday, so give yourself a few extra minutes or cut over on Fifth. On the fun side, the hiking club you follow is running pickup soccer on the Diag Sunday afternoon at two, which is an easy one to add to your calendar. Friday night, SCOR has a homecoming pregame at ten if you want to start the weekend early. And on Monday evening at seven, city council votes on the Packard bike lanes, right on your route, so it's worth a look if you have opinions. Have a good week." """;
 sem llm_write_brief.profile = "Who the brief is for: name, home area, commute mode and interests.";
-sem llm_write_brief.items = "The ranked items, one per line, each with when, why it matters (strongest reason first) and what to do.";
-sem llm_write_brief.week_of = "The Monday this brief is for, e.g. Monday, September 21, 2026. Item days (Mon, Tue...) are days of this week.";
+sem llm_write_brief.items = "This listener's items, already grouped (Getting around, Worth your time, Civic), each with when, reasons (strongest first) and what to do.";
+sem llm_write_brief.week_of = "The Monday this brief is for, e.g. Monday, September 28, 2026. Item days (Monday, Tuesday...) are days of this week.";
 
 """Order an item's reasons by the points each earned (from its trace rules), strongest first.
 A rule counted twice for the same reason only counts once here."""
@@ -65,13 +71,31 @@ def template_brief(first_name: str, items: list[dict[str, any]], today: date | N
 """The lines the LLM sees for the ranked items. They are already made speakable, so it never has to guess what an
 abbreviation stands for (it read "UMS" as University of Michigan)."""
 def editor_items_text(items: list[dict[str, any]], ref: date | None = None) -> str {
+    groups: list[list[any]] = [["Getting around", ["alert"]], ["Worth your time", ["event", "organizer", "venue"]], ["Civic", ["civic"]]];
     lines: list[str] = [];
-    for (i, it) in enumerate(items) {
-        why = "; ".join([speakable(str(r), ref).rstrip(".") for r in list(it.get("reasons", []))[:3]]);
-        name = speakable(str(it["name"]), ref);
-        when = speakable(str(it.get("when", "")), ref);
-        action = speakable(str(it.get("action", "")), ref);
-        lines.append(f"{i + 1}. {name} ({it['kind']}). When: {when}. Why it matters: {why}. What to do: {action}");
+    n = 1;
+    def by_day(it: dict[str, any]) -> int {
+        return int(it.get("day", 0) or 0);
+    }
+    for g in groups {
+        label: str = str(g[0]);
+        kinds: list[str] = list(g[1]);
+        members = [it for it in items if str(it.get("kind", "")) in kinds];
+        if label == "Worth your time" {
+            members = sorted(members, key=by_day);
+        }
+        if len(members) == 0 {
+            continue;
+        }
+        lines.append(label + ":");
+        for it in members {
+            why = "; ".join([speakable(str(r), ref).rstrip(".") for r in list(it.get("reasons", []))[:3]]);
+            name = speakable(str(it["name"]), ref);
+            when = speakable(str(it.get("when", "")), ref);
+            action = speakable(str(it.get("action", "")), ref);
+            lines.append(f"{n}. {name} ({it['kind']}). When: {when}. Reasons: {why}. To do: {action}");
+            n += 1;
+        }
     }
     return "\n".join(lines);
 }
@@ -110,6 +134,8 @@ def edit_brief(first_name: str, profile_line: str, items: list[dict[str, any]], 
                 out["error"] = f"LLM brief too long ({n} words); used the template";
             } elif relative is not None {
                 out["error"] = f"LLM brief said '{relative.group(0)}'; used the template";
+            } elif re.search(STYLE_EXAMPLE_ONLY, spoken) is not None {
+                out["error"] = "LLM brief copied the style example; used the template";
             } else {
                 out["spoken"] = spoken;
                 out["mode"] = "llm";
