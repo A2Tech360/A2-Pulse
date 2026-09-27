@@ -134,8 +134,9 @@ def:pub DossierPanel(
     if dossier.address {
         where_bits = where_bits + (" · " if where_bits else "") + dossier.address;
     }
+    # -1 = the source gave no price; say so instead of "Free" or "$-1".
     price_label = (
-        "Free" if dossier.price == 0.0 else f"${dossier.price:.0f}"
+        "See listing" if dossier.price < 0.0 else ("Free" if dossier.price == 0.0 else f"${dossier.price:.0f}")
     );
 
     async def load_photos {

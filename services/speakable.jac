@@ -197,6 +197,35 @@ def _time_sub(m: re.Match[str]) -> str {
     return clock + (" p.m." if ap == "p" else " a.m.");
 }
 
+"""Spoken form of a 24-hour clock time: 22:00 -> "10 p.m.", 19:30 -> "7:30 p.m.",
+09:05 -> "9:05 a.m.", 12:00 -> "noon", 00:00 -> "midnight"."""
+def _spoken_24h(h: int, mm: str) -> str {
+    if mm == "00" and h == 12 {
+        return "noon";
+    }
+    if mm == "00" and h == 0 {
+        return "midnight";
+    }
+    h12 = h % 12 or 12;
+    clock = str(h12) if mm == "00" else f"{h12}:{mm}";
+    return clock + (" p.m." if h >= 12 else " a.m.");
+}
+
+"""24-hour times that can't be 12-hour ones: hour 13-23 or 0, a leading zero
+("09:00") or seconds ("20:00:00"). Bare "10:30" stays as written."""
+def _clock24_sub(m: re.Match[str]) -> str {
+    hh = m.group(1);
+    h = int(hh);
+    mm = m.group(2);
+    if h > 23 or int(mm) > 59 {
+        return m.group(0);
+    }
+    if h >= 13 or h == 0 or (len(hh) == 2 and hh.startswith("0")) or m.group(3) {
+        return _spoken_24h(h, mm);
+    }
+    return m.group(0);
+}
+
 def _money_sub(m: re.Match[str]) -> str {
     dollars = int(m.group(1).replace(",", ""));
     cents = int(m.group(2)) if m.group(2) else 0;
@@ -276,7 +305,19 @@ def speakable(text: str, today: date | None = None) -> str {
     t = t.replace("+", " plus ");
     t = re.sub(r"\b(\d+(?:\.\d+)?)\s?(mi|mins|min|hrs|hr|ft)\b\.?", _distance_sub, t);
 
-    # Dates (before "/" and "-" are touched).
+    # Dates (before "/" and "-" are touched). ISO date-times first:
+    # "2026-10-10 19:30:00" -> "Saturday, October 10th at 7:30 p.m.".
+    t = re.sub(
+        r"\b(\d{4})-(\d{2})-(\d{2})[T ](\d{1,2}):(\d{2})(?::\d{2}(?:\.\d+)?)?(?:[+-]\d{2}:?\d{2}|Z)?\b",
+        lambda (m: re.Match[str]) -> str {
+            h = int(m.group(4));
+            if h > 23 or int(m.group(5)) > 59 {
+                return _spoken_date(int(m.group(1)), int(m.group(2)), int(m.group(3)), ref);
+            }
+            return _spoken_date(int(m.group(1)), int(m.group(2)), int(m.group(3)), ref) + " at " + _spoken_24h(h, m.group(5));
+        },
+        t
+    );
     t = re.sub(
         r"\b(\d{4})-(\d{2})-(\d{2})\b",
         lambda (m: re.Match[str]) -> str { return _spoken_date(int(m.group(1)), int(m.group(2)), int(m.group(3)), ref); },
@@ -320,10 +361,13 @@ def speakable(text: str, today: date | None = None) -> str {
 
     # Times: 7:00 PM -> 7 p.m.; 12 PM -> noon; ranges and "Monday 7 p.m." -> "Monday at 7 p.m.".
     t = re.sub(r"\b(\d{1,2})(?::(\d{2}))?\s*([AaPp])\.?\s*[Mm]\b\.?", _time_sub, t);
+    t = re.sub(r"(?<![\d:])(\d{1,2}):(\d{2})(?::(\d{2}))?(?![\d:])(?!\s*[AaPp]\.?\s*[Mm]\b)", _clock24_sub, t);
     t = re.sub(r"(\d)\s*[-–—]\s*(\d{1,2}(?::\d{2})? [ap]\.m\.)", r"\1 to \2", t);
     t = re.sub(r"(\d [ap]\.m\.)\s*[-–—]\s*(\d)", r"\1 to \2", t);
     t = re.sub(r"\b(" + day_alt + r")\s*[-–—]\s*(" + day_alt + r")\b", r"\1 to \2", t);
     t = re.sub(r"\b(" + day_alt + r") (\d{1,2}(?::\d{2})? [ap]\.m\.|noon|midnight)", r"\1 at \2", t);
+    # "October 10th 7 p.m." / "October 2nd, 9:30 p.m." -> "October 10th at 7 p.m.".
+    t = re.sub(r"(\d(?:st|nd|rd|th))\s*,?\s+(\d{1,2}(?::\d{2})? [ap]\.m\.|noon|midnight)", r"\1 at \2", t);
 
     # Directions, then road suffixes (Street/Saint, Drive/Doctor).
     t = re.sub(r"(?<![\w'’.-])(NE|NW|SE|SW|N|S|E|W)\.?(?=\s+(?:[A-Z]|\d))", _dir_sub, t);

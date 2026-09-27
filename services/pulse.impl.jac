@@ -485,8 +485,9 @@ impl _passes(n: PulseNode, spec: FilterSpec, clat: float, clng: float) -> bool {
         } elif n.posted_by and not spec.community {
             return False;
         }
-        if spec.price == "free" and n.price > 0.0 { return False; }
-        if spec.price == "under10" and n.price >= 10.0 { return False; }
+        # Unknown prices (-1) match neither "Free" nor "Under $10".
+        if spec.price == "free" and n.price != 0.0 { return False; }
+        if spec.price == "under10" and (n.price < 0.0 or n.price >= 10.0) { return False; }
     }
     if spec.distance > 0.0 and n.lat != 0.0 {
         if _miles(clat, clng, n.lat, n.lng) > spec.distance { return False; }
@@ -883,6 +884,7 @@ impl _find_key(key: str) -> PulseNode | None {
 }
 
 impl _action_for(n: PulseNode, reasons: list[str], commute: str) -> str {
+    when_txt = friendly_when(n.when);
     if commute == "bus" {
         return _bus_action_for(n, reasons);
     }
@@ -891,42 +893,49 @@ impl _action_for(n: PulseNode, reasons: list[str], commute: str) -> str {
             return "Check TheRide trip planner and give yourself 10 extra minutes.";
         }
         if commute == "car" {
-            return "Shift deliveries and parking outside " + n.when + ".";
+            return "Shift deliveries and parking outside " + when_txt + ".";
         }
         if commute == "bike" {
             return "Leave 10 minutes early or take the Fuller Rd path instead.";
         }
-        return "Plan around it: " + n.when + ".";
+        return "Plan around it: " + when_txt + ".";
     }
     if n.kind == "civic" {
-        return "Sign up for public comment or email Council: " + n.when + ".";
+        return "Sign up for public comment or email Council: " + when_txt + ".";
+    }
+    if n.price < 0.0 {
+        return "Check the listing for tickets, then save it for " + when_txt + ".";    # price unknown
     }
     if n.price == 0.0 {
-        return "Free. Save it to your calendar for " + n.when + ".";
+        return "Free. Save it to your calendar for " + when_txt + ".";
     }
-    return "RSVP and grab a ticket ($" + str(int(n.price)) + ") for " + n.when + ".";
+    return "RSVP and grab a ticket ($" + str(int(n.price)) + ") for " + when_txt + ".";
 }
 
 # Bus riders: closures and detours change where the bus goes, not just traffic.
 impl _bus_action_for(n: PulseNode, reasons: list[str]) -> str {
+    when_txt = friendly_when(n.when);
     # Kept short: to-dos are read aloud and the whole brief must stay near one minute.
     near_home = len([r for r in reasons if r.startswith("Near your home")]) > 0;
     if n.kind == "alert" {
         if n.sub == "detour" {
-            return "Your bus is detouring (" + n.when + "). Check TheRide's live map and allow 15 extra minutes.";
+            return "Your bus is detouring (" + when_txt + "). Check TheRide's live map and allow 15 extra minutes.";
         }
         if near_home {
-            return "Stops near home may move (" + n.when + "). Check TheRide alerts and allow 10 extra minutes.";
+            return "Stops near home may move (" + when_txt + "). Check TheRide alerts and allow 10 extra minutes.";
         }
-        return "Your bus may detour around it (" + n.when + "). Check TheRide alerts before you leave.";
+        return "Your bus may detour around it (" + when_txt + "). Check TheRide alerts before you leave.";
     }
     if n.kind == "civic" {
-        return "Sign up for public comment or email Council: " + n.when + ".";
+        return "Sign up for public comment or email Council: " + when_txt + ".";
+    }
+    if n.price < 0.0 {
+        return "Check the listing for tickets, then plan the bus for " + when_txt + ".";    # price unknown
     }
     if n.price == 0.0 {
-        return "Free. Save it for " + n.when + " and check the bus times.";
+        return "Free. Save it for " + when_txt + " and check the bus times.";
     }
-    return "RSVP and grab a ticket ($" + str(int(n.price)) + ") for " + n.when + ".";
+    return "RSVP and grab a ticket ($" + str(int(n.price)) + ") for " + when_txt + ".";
 }
 
 impl _heuristic_filters(text: str, prior: FilterSpec) -> FilterSpec {
@@ -1327,7 +1336,7 @@ impl MapSnapshot.pin {
     }
     self.items.append(MapItem(
         id=jid(here), key=here.key, name=here.name, kind=here.kind, desc=here.desc,
-        when=here.when, price=here.price, lat=plat, lng=plng,
+        when=friendly_when(here.when), price=here.price, lat=plat, lng=plng,
         venue=where_lbl, categories=pin_cats,
         source_name=here.source_name, source_url=here.source_url, path=draw_path,
         dist=round(_miles(self.clat, self.clng, plat, plng), 2)
@@ -1392,10 +1401,10 @@ impl GetDossier.read {
         }
         links.append(_gnode(x, 1));
     }
-    real_orgs: list[Organizer] = [o for o in orgs if not _is_neighbors_board(o)];
+    real_orgs: list[Organizer] = [o for o in orgs if not _is_neighbors_board(o) and not is_platform(o.name)];
     report Dossier(
         id=jid(here), key=here.key, name=here.name, kind=here.kind, desc=here.desc,
-        when=here.when, venue=(ven.name if ven else ""), address=here.address,
+        when=friendly_when(here.when), venue=(ven.name if ven else ""), address=here.address,
         organizer=(
             here.posted_by
             if here.posted_by
@@ -1443,12 +1452,29 @@ impl GenerateBrief.rank {
     reasons: dict[str, list[str]] = {};
     nodes: dict[str, PulseNode] = {};
     rules: dict[str, list[dict]] = {};
+    # "Your week" is the brief's Monday through Sunday; anything dated outside it is skipped.
+    monday = brief_monday(datetime.now());
+    week_ok: dict[str, bool] = {};
+    dropped: list[str] = [];
+
+    def in_week(n: PulseNode) -> bool {
+        if n.key not in week_ok {
+            week_ok[n.key] = in_brief_week(n.when, n.on_date, n.key.startswith("live-"), monday);
+            if not week_ok[n.key] {
+                dropped.append(n.key);
+            }
+        }
+        return week_ok[n.key];
+    }
 
     def bump(n: PulseNode, pts: float, why: str, rule: str) -> None {
         if not _passes(n, spec, self.clat, self.clng) {
             return;
         }
         k = n.key;
+        if not in_week(n) {
+            return;
+        }
         if k not in scores {
             scores[k] = 0.0;
             reasons[k] = [];
@@ -1481,6 +1507,9 @@ impl GenerateBrief.rank {
         }
     }
     for o in follows {
+        if is_platform(o.name) {
+            continue;    # a ticketing/listing platform is not a host you follow
+        }
         for x in [o <-:OrganizedBy:<-][?:PulseNode] {
             bump(x, 2.0, "From " + o.name + ", which you follow", "follows");
         }
@@ -1500,7 +1529,20 @@ impl GenerateBrief.rank {
             rules[k].append({"rule": "soon", "points": 0.6, "detail": reasons[k][-1]});
         }
     }
-    ranked = sorted(list(scores.keys()), key=lambda (k: str) -> float { return scores[k]; }, reverse=True);
+    ranked_all = sorted(list(scores.keys()), key=lambda (k: str) -> float { return scores[k]; }, reverse=True);
+    # One item per listing: the same title at the same venue (a duplicate from
+    # another source, or another night of the same show) keeps only its best score.
+    ranked: list[str] = [];
+    seen_listing: list[str] = [];
+    for k in ranked_all {
+        ven = _venue_of(nodes[k]);
+        lk = nodes[k].kind + "|" + norm_title(nodes[k].name) + "|" + (ven.key if ven else "");
+        if lk in seen_listing {
+            continue;
+        }
+        seen_listing.append(lk);
+        ranked.append(k);
+    }
     t_score = time.perf_counter();
 
     # Action agent: a to-do for each of the top five.
@@ -1509,7 +1551,7 @@ impl GenerateBrief.rank {
         n = nodes[k];
         cats = _cats_of(n);
         items.append(BriefItem(
-            id=jid(n), key=n.key, name=n.name, kind=n.kind, when=n.when,
+            id=jid(n), key=n.key, name=n.name, kind=n.kind, when=friendly_when(n.when),
             why=". ".join(reasons[k][:2]) + ".",
             action=_action_for(n, reasons[k], here.commute),
             category=(cats[0] if len(cats) > 0 else n.kind),
@@ -1537,6 +1579,8 @@ impl GenerateBrief.rank {
     trace["llm"] = {"on": pulse_llm.llm_enabled(), "model": pulse_llm.llm_model_label()};
     # The "soon" rule and date wording depend on the weekday the brief ran.
     trace["today"] = {"date": datetime.now().date().isoformat(), "weekday": today};
+    trace["week"] = {"monday": monday.isoformat(), "dropped_outside_week": len(dropped)};
+    trace["duplicates_collapsed"] = len(ranked_all) - len(ranked);
     timing: dict[str, float] = {
         "profile_ms": ms(t_start, t_profile), "relevance_ms": ms(t_profile, t_score), "actions_ms": ms(t_score, t_actions)
     };
@@ -1933,8 +1977,8 @@ impl onboarding_options() -> dict {
     places = [{"key": pl.key, "name": pl.name, "lat": pl.lat, "lng": pl.lng} for pl in [hub -->][?:Place]];
     orgs: list[dict] = [];
     for o in [hub -->][?:Organizer] {
-        if _is_neighbors_board(o) {
-            continue;
+        if _is_neighbors_board(o) or is_platform(o.name) {
+            continue;    # the neighbors board and ticketing/listing platforms aren't hosts to follow
         }
         cats: list[str] = [];
         for x in [o <-:OrganizedBy:<-][?:PulseNode] {
@@ -1995,7 +2039,7 @@ impl save_profile(
     }
     for k in follows {
         org = _find_key(k);
-        if org is not None and org.kind == "organizer" {
+        if org is not None and org.kind == "organizer" and not is_platform(org.name) {
             prof +>:Follows():+> org;
         }
     }
@@ -2294,10 +2338,10 @@ def _escape_popup(s: str) -> str {
 }
 
 def _heuristic_map_overview(n: PulseNode) -> MapOverview {
-    tip = n.when if n.when else "";
+    tip = friendly_when(n.when) if n.when else "";
     if n.kind == "alert" and not tip {
         tip = "Check before you leave.";
-    } elif n.kind == "event" and n.price == 0.0 {
+    } elif n.kind == "event" and n.price == 0.0 and n.sub == "free" {
         tip = "Free — good drop-in.";
     } elif n.kind == "event" and n.price > 0.0 {
         tip = "Ticketed · about $" + str(int(n.price));

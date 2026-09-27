@@ -34,7 +34,7 @@ def:pub map_popup_html(
     it: MapItem, dark: bool = True, overview: str = "", tip: str = ""
 ) -> str {
     price = "";
-    if it.kind == "event" {
+    if it.kind == "event" and it.price >= 0.0 {    # -1 = price unknown: show nothing
         price = " · Free" if it.price == 0.0 else " · $" + str(int(it.price));
     }
     dir_url = (

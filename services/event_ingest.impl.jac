@@ -7,6 +7,7 @@ import from urllib.request { Request, urlopen }
 import from datetime { datetime }
 import from services.seed_data { CATEGORIES }
 import from services.umich_feed { fetch_happening_umich }
+import from services.event_time { item_iso_date }
 import from services.event_parse {
     strip_html,
     extract_for_feed,
@@ -14,7 +15,10 @@ import from services.event_parse {
     parse_day,
     guess_cats,
     guess_price,
-    clip
+    clip,
+    norm_title,
+    time_slot,
+    is_platform
 }
 
 glob INGEST_FEEDS: list[dict[str, any]] = [
@@ -303,7 +307,7 @@ def _dict_to_raw(d: dict[str, any]) -> RawEvent {
         when=str(d.get("when", "")),
         venue=str(d.get("venue", "")),
         organizer=str(d.get("organizer", "")),
-        price=float(d.get("price", 0.0) if d.get("price", 0.0) is not None else 0.0),
+        price=float(d.get("price", -1.0) if d.get("price", -1.0) is not None else -1.0),
         categories=cats,
         source_url=str(d.get("source_url", "")),
         day=int(d.get("day", -1) if d.get("day", -1) is not None else -1),
@@ -406,14 +410,19 @@ def _upsert_event(hub: Hub, raw: RawEvent, src: SourceDoc) -> str {
     when = clip(raw.when, 80);
     key = ("live-um-" + raw.ext_id) if raw.ext_id else event_key(name, when, src.key);
     day = raw.day if raw.day >= 0 else parse_day(when);
+    iso_day = item_iso_date(when);
+    if day < 0 and iso_day {
+        day = datetime.fromisoformat(iso_day).weekday();    # ISO dates ("2026-10-10 19:30")
+    }
     if day < 0 {
         day = datetime.now().weekday();
     }
     cats = [c for c in raw.categories if c in CATEGORIES];
     if len(cats) == 0 {
-        cats = guess_cats(name + " " + raw.desc + " " + when);
+        cats = guess_cats(name, raw.desc, src.name);
     }
     price = raw.price if raw.price >= 0.0 else guess_price(name + " " + raw.desc);
+    sub = "free" if price == 0.0 else ("paid" if price > 0.0 else "");
     # Geocoded feeds (ext_id set) bring their own coordinates; without them the event is
     # online or unplaceable, so it gets no venue rather than a guessed pin.
     ven: Venue | None = None;
@@ -425,15 +434,21 @@ def _upsert_event(hub: Hub, raw: RawEvent, src: SourceDoc) -> str {
     lat: float = ven.lat if ven else 0.0;
     lng: float = ven.lng if ven else 0.0;
     address: str = ven.address if ven and not raw.address else raw.address;
-    org_name = raw.organizer if raw.organizer else src.name;
-    org = _ensure_organizer(hub, org_name, ven if ven else _default_venue(hub));
+    # The real host only: a ticketing/listing platform (Eventbrite, the Observer) is a
+    # source, never an organizer, and there is no source-name fallback any more.
+    org_name = raw.organizer.strip() if raw.organizer and not is_platform(raw.organizer) else "";
+    org: Organizer | None = _ensure_organizer(hub, org_name, ven if ven else _default_venue(hub)) if org_name else None;
     desc = clip(raw.desc if raw.desc else ("Listed on " + src.name + "."), 280);
     url = raw.source_url if raw.source_url else src.source_url;
     existing = _find_event(hub, key);
+    if existing is None and _find_same_listing(hub, name, ven, when) is not None {
+        return "skip";    # same title, venue and time already listed by another source
+    }
     if existing {
         existing.name = name;
         existing.desc = desc;
         existing.when = when if when else existing.when;
+        existing.on_date = item_iso_date(existing.when);
         existing.day = day;
         existing.price = price;
         existing.lat = lat;
@@ -450,7 +465,18 @@ def _upsert_event(hub: Hub, raw: RawEvent, src: SourceDoc) -> str {
         }
         existing.source_name = src.name;
         existing.source_url = url;
-        existing.sub = "free" if price == 0.0 else "paid";
+        existing.sub = sub;
+        for e in [edge existing ->:OrganizedBy:->] {
+            del e;
+        }
+        if org is not None {
+            existing +>:OrganizedBy():+> org;
+        }
+        # Re-tag on every sync so fixes to the category rules reach stored events.
+        for e in [edge existing ->:TaggedAs:->] {
+            del e;
+        }
+        _tag(hub, existing, cats);
         return "updated";
     }
     ev = Event(
@@ -459,6 +485,7 @@ def _upsert_event(hub: Hub, raw: RawEvent, src: SourceDoc) -> str {
         kind="event",
         desc=desc,
         when=(when if when else "Upcoming"),
+        on_date=item_iso_date(when),
         day=day,
         price=price,
         lat=lat,
@@ -466,14 +493,36 @@ def _upsert_event(hub: Hub, raw: RawEvent, src: SourceDoc) -> str {
         address=address,
         source_name=src.name,
         source_url=url,
-        sub=("free" if price == 0.0 else "paid")
+        sub=sub
     );
     hub ++> ev;
     if ven {
         ev +>:HostedAt():+> ven;
     }
-    ev +>:OrganizedBy():+> org;
+    if org is not None {
+        ev +>:OrganizedBy():+> org;
+    }
     ev +>:SourcedFrom():+> src;
+    _tag(hub, ev, cats);
+    return "created";
+}
+
+"""An existing event with the same title, venue and time (from any source)."""
+def _find_same_listing(hub: Hub, name: str, ven: Venue | None, when: str) -> Event | None {
+    if ven is None {
+        return None;    # online / unplaced listings have no venue to compare
+    }
+    nt = norm_title(name);
+    slot = time_slot(when);
+    for ev in [ven <-:HostedAt:<-][?:Event] {
+        if norm_title(ev.name) == nt and time_slot(ev.when) == slot {
+            return ev;
+        }
+    }
+    return None;
+}
+
+def _tag(hub: Hub, ev: Event, cats: list[str]) {
     for c in cats {
         ckey = "cat-" + c;
         for cat in [hub -->][?:Category] {
@@ -482,7 +531,6 @@ def _upsert_event(hub: Hub, raw: RawEvent, src: SourceDoc) -> str {
             }
         }
     }
-    return "created";
 }
 
 def _collect_raws(kind: str, text: str, url: str, name: str) -> list[RawEvent] {
@@ -512,7 +560,7 @@ def _collect_raws(kind: str, text: str, url: str, name: str) -> list[RawEvent] {
                     row.source_url = url;
                 }
                 if len(row.categories) == 0 {
-                    row.categories = guess_cats(nm + " " + row.desc);
+                    row.categories = guess_cats(nm, row.desc, name);
                 }
                 raws.append(row);
                 seen.append(nm.lower());
