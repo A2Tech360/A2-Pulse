@@ -8,6 +8,7 @@ import from .ui.skeleton { Skeleton }
 import from .ui.select { Select, SelectTrigger, SelectValue, SelectContent, SelectItem }
 import from .pulse_theme { kind_color, kind_label }
 import from .profile_store { my_persona, load_profile, commute_verb }
+import from .net { with_timeout }
 sv import from ..services.pulse { GenerateBrief, Feedback, Brief, BriefItem, list_personas, speak_brief, list_voices }
 
 glob PERSONA_TABS: list[dict] = [
@@ -42,6 +43,7 @@ def:pub MondayPage() -> JsxElement {
         voices: list[dict] = [],
         voice_id: str = "",
         me: dict = {},
+        voice_note: str = "",
         note: str = "";
 
     nav = useNavigate();
@@ -65,20 +67,49 @@ def:pub MondayPage() -> JsxElement {
         return home + ", " + commute_verb(mode);
     }
 
+    async def run_brief(who: str, ai: bool) -> any {
+        res = root spawn GenerateBrief(persona=who, use_ai=ai);
+        return res;
+    }
+
+    # Brief with deadlines: the full (AI) brief gets 8 s, then the instant template
+    # brief gets 8 s, then a plain error with Retry. The skeleton shows meanwhile.
     async def generate -> None {
         loading = True;
         error = "";
         note = "";
         who: str = target_persona(persona);
+        w: any = window;
+        req: int = (w.__pulseBriefReq or 0) + 1;
+        w.__pulseBriefReq = req;
+        if brief is not None and brief.persona != who {
+            brief = None;    # switching people: show the skeleton, not the last person's brief
+        }
+        got: any = None;
+        quick: bool = False;
         try {
             if persona == "custom" {
                 await load_profile();
             }
-            res = root spawn GenerateBrief(persona=who, use_ai=True);
-            brief = res.reports[0] if res.reports and len(res.reports) > 0 else None;
-            votes = {};
+            got = await with_timeout(run_brief(who, True), None);
+            if got is None and w.__pulseBriefReq == req {
+                quick = True;
+                got = await with_timeout(run_brief(who, False), None);
+            }
         } except Exception {
-            error = "The Monday crew could not finish the brief.";
+            got = None;
+        }
+        if w.__pulseBriefReq != req {
+            return;    # a newer request (tab switch / regenerate) owns the screen
+        }
+        if got is None {
+            error = "Can't reach the A2 Pulse server right now. Check your connection, then retry.";
+        } else {
+            brief = got.reports[0] if got.reports and len(got.reports) > 0 else None;
+            votes = {};
+            if quick {
+                note = "The full brief was taking too long, so this is the quick version. Regenerate to try again.";
+            }
         }
         loading = False;
     }
@@ -95,7 +126,7 @@ def:pub MondayPage() -> JsxElement {
             saved = "";
         }
         try {
-            res: dict = await list_voices();
+            res: dict = await with_timeout(list_voices(), {"voices": []});
             loaded: list[dict] = res["voices"] or [];
             voices = loaded;
             ids: list[str] = [v["id"] for v in loaded];
@@ -171,9 +202,10 @@ def:pub MondayPage() -> JsxElement {
         w.__pulseVoiceReq = req;
         text: str = brief.summary;
         voice_loading = True;
+        voice_note = "";
         res: dict = {"audio": "", "error": ""};
         try {
-            res = await speak_brief(text, voice_id);
+            res = await with_timeout(speak_brief(text, voice_id), {"audio": "", "error": "timeout"});
         } except Exception {
             res = {"audio": "", "error": "Voice request failed"};
         }
@@ -183,11 +215,16 @@ def:pub MondayPage() -> JsxElement {
         voice_loading = False;
         if not res["audio"] {
             print("ElevenLabs unavailable, using browser voice:", res["error"]);
+            voice_note = "The studio voice didn't respond, so your browser is reading the brief." if w.speechSynthesis else "Voice isn't available right now. The brief is written above.";
             speak_fallback(text);
             return;
         }
         a: any = new(w.Audio, res["audio"]);
         a.onended = lambda { speaking = False; };
+        a.onerror = lambda {
+            voice_note = "The studio voice couldn't play, so your browser is reading the brief.";
+            speak_fallback(text);
+        };
         w.__pulsePlayer = a;
         speaking = True;
         a.play();
@@ -201,9 +238,13 @@ def:pub MondayPage() -> JsxElement {
                 <p className="max-w-lg text-sm text-muted-foreground">{"The five things that touch your week, with what to do about each."}</p>
             </div>
             <div className="flex flex-col gap-2">
-                <div className="flex items-center justify-end">
+                <div className="flex items-center justify-end gap-3">
                     <button type="button" onClick={lambda (e: MouseEvent) { stop_audio(); nav("/welcome?edit=1"); }} className="text-xs font-medium text-muted-foreground underline-offset-4 hover:text-foreground hover:underline">
                         {"Edit your profile" if me_onboarded() else "Set up your profile"}
+                    </button>
+                    <span className="text-xs text-muted-foreground/50" aria-hidden="true">{"·"}</span>
+                    <button type="button" onClick={lambda (e: MouseEvent) { stop_audio(); nav("/welcome?reset=1"); }} className="text-xs font-medium text-muted-foreground underline-offset-4 hover:text-foreground hover:underline" title="Give this browser a new, blank profile and onboard again">
+                        {"Start fresh"}
                     </button>
                 </div>
                 <div className="grid grid-cols-3 gap-1 rounded-lg bg-muted pt-1 pb-1 pl-1 pr-1">
@@ -255,6 +296,8 @@ def:pub MondayPage() -> JsxElement {
                 </Button>
             </div>
         </div>
+
+        {voice_note and <p className="-mt-4 text-xs text-muted-foreground" role="status">{voice_note}</p>}
 
         {error and <div className="flex items-center gap-3">
             <p className="text-sm text-destructive">{error}</p>

@@ -7,7 +7,8 @@ import from "@hugeicons/core-free-icons" { ArrowLeft01Icon, ArrowRight01Icon, Lo
 import from .ui.button { Button }
 import from .ui.skeleton { Skeleton }
 import from .MapChrome { MapAddressSearch }
-import from .profile_store { browser_uid, load_profile }
+import from .profile_store { browser_uid, load_profile, reset_identity }
+import from .net { with_timeout }
 sv import from ..services.pulse { onboarding_options, nearest_place, route_places, save_profile }
 
 glob STEP_COUNT: int = 3;
@@ -21,6 +22,20 @@ glob MODES: list[dict] = [
     {"id": "bus", "label": "Bus"}
 ];
 glob SKIP_KEY: str = "a2pulse.skipOnboarding";
+# Used when onboarding_options is slow or down, so the presets always work on stage.
+glob FALLBACK_OPTIONS: dict = {
+    "places": [
+        {"key": "pl-central", "name": "Central Campus"},
+        {"key": "pl-north", "name": "North Campus"},
+        {"key": "pl-main", "name": "Main Street"},
+        {"key": "pl-kerry", "name": "Kerrytown"},
+        {"key": "pl-plymouth", "name": "Plymouth Rd corridor"},
+        {"key": "pl-state", "name": "State Street"},
+        {"key": "pl-washtenaw", "name": "Washtenaw Ave"}
+    ],
+    "categories": ["music", "food", "sports", "academic", "social", "arts", "community", "outdoor", "civic", "networking"],
+    "organizers": []
+};
 
 def:pub OptionChip(label: str, active: bool, onToggle: Callable[[], None]) -> JsxElement {
     base = "inline-flex h-9 items-center gap-1.5 rounded-full border pl-3.5 pr-3.5 text-sm font-medium capitalize transition-colors ";
@@ -56,14 +71,22 @@ def:pub WelcomePage(dark: bool = True) -> JsxElement {
     nav = useNavigate();
 
     async can with entry {
-        o: dict = {"places": [], "categories": [], "organizers": []};
-        try {
-            o = await onboarding_options();
-        } except Exception {
-            err = "Could not load the neighborhoods. Check that the server is running.";
+        w: any = window;
+        if "reset=1" in (w.location.search or "") {
+            reset_identity();
+            nav("/welcome", {"replace": True});
         }
-        opts = o;
-        prof: dict = await load_profile();
+        # Both requests run at once, so a dead API costs one 8 s timeout, not two.
+        opts_req: any = with_timeout(onboarding_options(), None);
+        prof_req: any = load_profile();
+        o: any = None;
+        try {
+            o = await opts_req;
+        } except Exception {
+            o = None;
+        }
+        opts = o if o is not None else FALLBACK_OPTIONS;
+        prof: dict = await prof_req;
         if prof["ok"] and prof["onboarded"] {
             editing = True;
             home_key = prof["home_key"];
@@ -94,10 +117,12 @@ def:pub WelcomePage(dark: bool = True) -> JsxElement {
         seq: int = (w.__pulseRouteSeq or 0) + 1;
         w.__pulseRouteSeq = seq;
         rows: list[dict] = [];
+        fallback: list[dict] = [{"key": hk, "name": place_name(hk)}] + ([{"key": dk, "name": place_name(dk)}] if dk and dk != hk else []);
         try {
-            rows = await route_places(hk, dk);
+            got: any = await with_timeout(route_places(hk, dk), None);
+            rows = got if got is not None and len(got) > 0 else fallback;
         } except Exception {
-            rows = [{"key": hk, "name": place_name(hk)}];
+            rows = fallback;
         }
         if w.__pulseRouteSeq == seq {
             route = rows;
@@ -138,13 +163,18 @@ def:pub WelcomePage(dark: bool = True) -> JsxElement {
         home_label = label;
         home_lat = lat;
         home_lng = lng;
+        hit: any = None;
         try {
-            hit: dict = await nearest_place(lat, lng);
-            home_key = hit["key"];
-            home_dist = hit["dist"];
+            hit = await with_timeout(nearest_place(lat, lng), None);
         } except Exception {
-            err = "Could not place that address. Pick a neighborhood below instead.";
+            hit = None;
         }
+        if hit is None or not hit["key"] {
+            err = "We couldn't place that address. Tap your neighborhood below instead.";
+            return;
+        }
+        home_key = hit["key"];
+        home_dist = hit["dist"];
     }
 
     def choose_dest_preset(key: str) {
@@ -153,13 +183,18 @@ def:pub WelcomePage(dark: bool = True) -> JsxElement {
     }
 
     async def choose_dest_address(lat: float, lng: float, label: str) -> None {
-        dest_label = label;
+        hit: any = None;
         try {
-            hit: dict = await nearest_place(lat, lng);
-            dest_key = hit["key"];
+            hit = await with_timeout(nearest_place(lat, lng), None);
         } except Exception {
-            err = "Could not place that address. Pick a spot below instead.";
+            hit = None;
         }
+        if hit is None or not hit["key"] {
+            err = "We couldn't place that address. Tap a spot above instead.";
+            return;
+        }
+        dest_label = label;
+        dest_key = hit["key"];
     }
 
     def toggle_interest(c: str) {
@@ -242,13 +277,14 @@ def:pub WelcomePage(dark: bool = True) -> JsxElement {
         err = "";
         via_keys: list[str] = [r["key"] for r in route];
         res: dict = {"ok": False, "error": ""};
+        timed_out: dict = {"ok": False, "error": "Saving is taking too long. Check your connection and try again."};
         try {
-            res = await save_profile(
+            res = await with_timeout(save_profile(
                 browser_uid(), home_key, home_lat, home_lng, home_label, commute,
                 via_keys, dest_key, dest_label, interests, follows
-            );
+            ), timed_out);
         } except Exception {
-            res = {"ok": False, "error": ""};
+            res = {"ok": False, "error": "Can't reach the A2 Pulse server. Check your connection and try again."};
         }
         if not res["ok"] {
             saving = False;
@@ -313,7 +349,7 @@ def:pub WelcomePage(dark: bool = True) -> JsxElement {
 
             {#* step 1: home *#}
             {ready and step == 1 and <div className="flex flex-col gap-4">
-                <MapAddressSearch dark={dark} inline={True} placeholder="Your street address" onGoTo={lambda (lat: float, lng: float, label: str) { choose_home_address(lat, lng, label); }} />
+                <MapAddressSearch dark={dark} inline={True} placeholder="Your street address" fallbackHint="Tap your neighborhood below instead." onGoTo={lambda (lat: float, lng: float, label: str) { choose_home_address(lat, lng, label); }} />
                 <div className="flex flex-col gap-2">
                     <span className="text-xs font-medium text-muted-foreground">{"Or tap your neighborhood"}</span>
                     <div className="flex flex-wrap gap-2">
@@ -351,7 +387,7 @@ def:pub WelcomePage(dark: bool = True) -> JsxElement {
                             <OptionChip key={k} label={place_name(k)} active={dest_key == k and not dest_label} onToggle={lambda { choose_dest_preset(k); }} />
                         }}
                     </div>
-                    <MapAddressSearch dark={dark} inline={True} placeholder="Or search a workplace or class building" onGoTo={lambda (lat: float, lng: float, label: str) { choose_dest_address(lat, lng, label); }} />
+                    <MapAddressSearch dark={dark} inline={True} placeholder="Or search a workplace or class building" fallbackHint="Tap a spot above instead." onGoTo={lambda (lat: float, lng: float, label: str) { choose_dest_address(lat, lng, label); }} />
                 </div>
                 {len(route_names) > 0 and <div className="flex flex-col gap-1 rounded-lg border bg-card pt-3 pb-3 pl-3.5 pr-3.5">
                     <span className="text-xs font-medium text-muted-foreground">{"We'll watch this route"}</span>

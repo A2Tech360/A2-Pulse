@@ -898,10 +898,21 @@ impl save_profile(
     return _profile_dict(prof);
 }
 
+# Nominatim usage policy: max 1 request/second, identify the app, cache repeats.
+glob NOMINATIM_UA: str = "A2Pulse/1.0 (Ann Arbor local graph demo; +https://github.com/muriloapparecido/A2-Pulse)";
+glob NOMINATIM_MIN_GAP: float = 1.0;
+glob _nominatim_lock: list[any] = [];    # created lazily: impl globs load before imports
+glob _nominatim_last: list[float] = [0.0];
+glob _nominatim_cache: dict[str, list[dict]] = {};
+
 def _nominatim_search(query: str, limit: int) -> list[dict] {
     q = query.strip();
     if len(q) < 2 {
         return [];
+    }
+    cache_key = str(limit) + "|" + q.lower();
+    if cache_key in _nominatim_cache {
+        return _nominatim_cache[cache_key];
     }
     low = q.lower();
     if "ann arbor" not in low and "michigan" not in low and ", mi" not in low {
@@ -920,16 +931,34 @@ def _nominatim_search(query: str, limit: int) -> list[dict] {
     req = Request(
         url,
         headers={
-            "User-Agent": "A2Pulse/1.0 (Jac demo; local map search)",
+            "User-Agent": NOMINATIM_UA,
             "Accept": "application/json"
         }
     );
     try {
-        resp = urlopen(req, timeout=8);
+        if len(_nominatim_lock) == 0 {
+            _nominatim_lock.append(threading.Lock());
+        }
+        lock: any = _nominatim_lock[0];
+        lock.acquire();
+        try {
+            gap = NOMINATIM_MIN_GAP - (time.monotonic() - _nominatim_last[0]);
+            if gap > 0.0 {
+                time.sleep(gap);
+            }
+            _nominatim_last[0] = time.monotonic();
+        } finally {
+            lock.release();
+        }
+        resp = urlopen(req, timeout=6);
         raw = resp.read().decode("utf-8");
         resp.close();
         data = json.loads(raw);
         if isinstance(data, list) {
+            if len(_nominatim_cache) > 300 {
+                _nominatim_cache.clear();
+            }
+            _nominatim_cache[cache_key] = data;
             return data;
         }
     } except Exception {
@@ -1013,6 +1042,10 @@ glob TTS_DEFAULT_MODEL: str = "eleven_flash_v2_5";
 glob TTS_MAX_CHARS: int = 2500;
 glob _tts_cache: dict[str, str] = {};
 glob _voices_cache: list[dict] = [];
+# When the key can't list voices (no voices_read), don't re-ask ElevenLabs on every
+# page load (~3 s each); retry after VOICES_RETRY_SECS.
+glob VOICES_RETRY_SECS: float = 600.0;
+glob _voices_failed_at: list[float] = [0.0];
 
 # Premade ElevenLabs voices, used when the key cannot list voices (no voices_read).
 glob PREMADE_VOICES: list[dict] = [
@@ -1076,13 +1109,14 @@ impl list_voices -> dict {
         return {"voices": _voices_cache, "source": "account"};
     }
     key = os.environ.get("ELEVENLABS_API_KEY", "").strip();
-    if key {
+    recently_failed = _voices_failed_at[0] > 0.0 and time.monotonic() - _voices_failed_at[0] < VOICES_RETRY_SECS;
+    if key and not recently_failed {
         req = Request(
             "https://api.elevenlabs.io/v2/voices?page_size=100",
             headers={"xi-api-key": key, "Accept": "application/json"}
         );
         try {
-            resp: any = urlopen(req, timeout=20);
+            resp: any = urlopen(req, timeout=6);
             data: any = json.loads(resp.read().decode("utf-8"));
             resp.close();
             out: list[dict] = [];
@@ -1098,6 +1132,7 @@ impl list_voices -> dict {
             }
         } except Exception {
             # Typically 401 missing_permissions (voices_read); fall through to premade.
+            _voices_failed_at[0] = time.monotonic();
         }
     }
     return {"voices": PREMADE_VOICES, "source": "premade"};
