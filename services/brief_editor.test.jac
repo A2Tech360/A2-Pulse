@@ -37,7 +37,9 @@ test "llm output goes through speakable" {
     assert "Plymouth Road" in str(out["spoken"]);
     assert "Saturday at 7 p.m." in str(out["spoken"]);
     assert "University of Michigan" in str(out["spoken"]);
-    assert "1. Plymouth Rd lane closure" in str(out["input"]["items"]);
+    # The LLM sees speakable item text, so it never guesses at abbreviations.
+    assert "1. Plymouth Road lane closure" in str(out["input"]["items"]);
+    assert "Wednesday to Friday, 7 a.m. to 5 p.m." in str(out["input"]["items"]);
 }
 
 test "llm error falls back to the template" {
@@ -47,7 +49,7 @@ test "llm error falls back to the template" {
     assert out["mode"] == "template";
     assert "provider down" in str(out["error"]);
     assert out["raw_llm"] is None;
-    assert out["spoken"].startswith("Good morning Jordan.");
+    assert out["spoken"].startswith("Good morning, Jordan.");
 }
 
 test "too-short llm output falls back to the template" {
@@ -69,18 +71,18 @@ test "llm off uses the template with no waiting" {
     assert elapsed < 0.5, elapsed;
 }
 
-test "template is 140 to 160 speakable words" {
+test "template is 130 to 180 speakable words" {
     out = template_brief("Jordan", ITEMS, TODAY);
-    assert 140 <= word_count(out) <= 160, f"{word_count(out)}: {out}";
+    assert 130 <= word_count(out) <= 180, f"{word_count(out)}: {out}";
     assert re.search(FORBIDDEN, out) is None, out;
     assert speakable(out, TODAY) == out;
     assert "5 dollars" in out;
 }
 
 test "template handles a quiet week and the You persona" {
-    assert template_brief("You", [], TODAY) == "Good morning. Nothing in Ann Arbor touches your week yet, so enjoy the quiet. Have a good week.";
+    assert template_brief("You", [], TODAY).startswith("Good morning. It's a quiet week");
     one = template_brief("You", ITEMS[:1], TODAY);
-    assert one.startswith("Good morning. One thing touches your week"), one;
+    assert one.startswith("Good morning. It's a pretty easy week, with one thing to plan around."), one;
 }
 
 test "deadline abandons a slow call" {
@@ -118,7 +120,7 @@ test "template never trims the time of an alert or civic item" {
         for it in ITEMS
     ];
     out = template_brief("Jordan", long_items, TODAY);
-    assert word_count(out) <= 165, word_count(out);
+    assert word_count(out) <= 180, word_count(out);
     for it in long_items {
         if str(it["when"]) not in str(it["action"]) {
             assert speakable(str(it["when"]), TODAY) in out, f"{it['when']} missing from: {out}";
@@ -140,11 +142,64 @@ test "reasons are ordered strongest first" {
     assert got == ["From U-M Jazz Collective, which you follow", "Matches your interest in music", "Close by at The Ark"], got;
 }
 
-test "unlabeled reasons read as sentences and mid-sentence times are lowercase" {
+test "narrative template: alert phrasing, no labels" {
     one: list[dict[str, any]] = [{"name": "State St sidewalk closure", "kind": "alert", "when": "All week", "reasons": ["From City of Ann Arbor, which you follow"], "action": "Use the east side crossing."}];
     out = template_brief("Luis", one, TODAY);
-    assert "State Street sidewalk closure, all week." in out, out;
-    assert _why_sentence("from Michigan Hiking Club, which you follow") == "It's from Michigan Hiking Club, which you follow";
-    assert _why_sentence("affects Central Campus, where you live or travel") == "It affects Central Campus, where you live or travel";
-    assert _mid_sentence("Thu all day") == "Thu all day";
+    assert "the State Street sidewalk closure runs all week" in out, out;
+    assert "Why it matters" not in out and "First," not in out, out;
+}
+
+test "the Editor is told the Monday the brief is for (next Monday on weekends)" {
+    mock(["Good morning Jordan. " + " ".join(["word"] * 120)]);
+    out = edit_brief("Jordan", "Jordan", ITEMS, True, date(2026, 9, 26));
+    pulse_llm.set_llm(None);
+    assert out["input"]["week_of"] == "Monday, September 28, 2026", out["input"];
+    assert "today" not in dict(out["input"]);
+    sunday = edit_brief("Jordan", "Jordan", ITEMS, False, date(2026, 9, 27));
+    assert sunday["input"]["week_of"] == "Monday, September 28, 2026";
+    monday = edit_brief("Jordan", "Jordan", ITEMS, False, date(2026, 9, 28));
+    assert monday["input"]["week_of"] == "Monday, September 28, 2026";
+}
+
+test "an LLM brief over 180 words falls back to the template" {
+    long = "Good morning Jordan. " + " ".join(["Plymouth Road is busy this week."] * 40);
+    mock([long]);
+    out = edit_brief("Jordan", "Jordan", ITEMS, True, TODAY);
+    pulse_llm.set_llm(None);
+    assert out["mode"] == "template";
+    assert "too long" in str(out["error"]), out["error"];
+    assert out["raw_llm"] == long;
+    assert out["spoken"].startswith("Good morning, Jordan.") and out["words"] <= 180;
+}
+
+test "an LLM brief that says today, tonight or tomorrow falls back to the template" {
+    for word in ["today", "Tonight", "tomorrow"] {
+        text = "Good morning Jordan. The council votes " + word + " at 7 p.m. " + " ".join(["Plymouth Road work runs all week."] * 12);
+        mock([text]);
+        out = edit_brief("Jordan", "Jordan", ITEMS, True, TODAY);
+        pulse_llm.set_llm(None);
+        assert out["mode"] == "template", word;
+        assert word in str(out["error"]), out["error"];
+    }
+}
+
+test "acronyms reach the LLM already expanded" {
+    items: list[dict[str, any]] = [{"name": "UMS Symphony: Rachmaninoff 2", "kind": "event", "when": "Sun 4:00 PM", "reasons": ["From UMS, which you follow"], "action": "RSVP and grab a ticket ($12) for Sun 4:00 PM."}];
+    text = editor_items_text(items, TODAY);
+    assert "University Musical Society Symphony: Rachmaninoff 2" in text, text;
+    assert "12 dollars" in text and "Sunday at 4 p.m." in text and "UMS" not in text, text;
+}
+
+test "an LLM brief that copies the style example falls back to the template" {
+    copied = "Good morning Jordan. It's a pretty easy week. " + " ".join(["Plymouth Road is down to one lane."] * 10) + " Friday night, SCOR has a homecoming pregame at ten. Have a good week.";
+    mock([copied]);
+    out = edit_brief("Jordan", "Jordan", ITEMS, True, TODAY);
+    pulse_llm.set_llm(None);
+    assert out["mode"] == "template";
+    assert "style example" in str(out["error"]), out["error"];
+}
+
+test "the LLM sees items grouped: getting around, worth your time, civic" {
+    text = editor_items_text(ITEMS, TODAY);
+    assert text.index("Getting around:") < text.index("Worth your time:") < text.index("Civic:"), text;
 }

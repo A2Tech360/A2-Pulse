@@ -7,7 +7,10 @@ comes from LLM_MODEL like the app, so the same command re-runs the eval once a
 model is set. Exit code 1 when any profile fails a check.
 """
 
+# First: normalize an empty or "off" LLM_MODEL before any module with `by llm` loads.
+import services.llm_env;
 import os;
+import time;
 import re;
 import io;
 import sys;
@@ -15,6 +18,7 @@ import contextlib;
 import from pathlib { Path }
 import from datetime { datetime }
 import from services { pulse_llm }
+import from services.brief_dates { brief_day_index, brief_week_label }
 import from services.pulse {
     GenerateBrief, UserProfile, PulseNode, Place, Venue, Category, Organizer, Alert,
     LivesAt, CommutesVia, InterestedIn, Follows, AffectsRoute, Near, HostedAt, TaggedAs, OrganizedBy,
@@ -22,7 +26,7 @@ import from services.pulse {
 }
 
 glob REPORT_PATH: Path = Path(str(__file__ or ".")).resolve().parent.parent / "reports" / "eval_briefs.md";
-glob MIN_WORDS: int = 120;
+glob MIN_WORDS: int = 130;
 glob MAX_WORDS: int = 180;
 
 glob SEEDED: list[dict[str, str]] = [
@@ -55,6 +59,39 @@ glob ABBREVIATIONS: list[str] = [
     r"[&@$%#*_()\[\]{}<>|~^=+\\/]",
     r"[\U0001F000-\U0001FAFF☀-➿]"
 ];
+
+# Narrative style: things a friend talking you through the week would not say.
+glob LIST_LABELS: str = r"(?i)why it matters|the reason:|why it's here|why you'd care|why it made the list";
+glob ORDINAL_LIST: str = r"\b(First|Second|Third|Fourth|Fifth|And finally)\s*,|\bNumber (one|two|three|four|five)\b";
+glob STYLE_EXAMPLE_ONLY: str = r"(?i)\b(SCOR|homecoming pregame|North Fourth Avenue|cut over on Fifth|Packard bike lanes)\b";
+# Reason phrasings; each should appear at most once per brief.
+glob REASON_STEMS: list[str] = [
+    "near your home", "close to home", "near your place", "just by your home", "right on your",
+    "along your", "in the way of your", "since you follow", "who you follow", "which you follow",
+    "one of your follows", "since you're into", "right up your alley", "matches your interest",
+    "your love for", "just around the corner", "a short trip to", "close by at", "your part of town",
+    "where you live", "where you get around"
+];
+
+"""Style checks for the spoken brief. Returns [(name, ok, detail)]."""
+def style_checks(spoken: str) -> list[dict[str, any]] {
+    sentences: list[str] = [x.strip() for x in re.split(r"(?<=[.!?])\s+(?=[A-Z])", spoken.strip()) if x.strip()];
+    labels = [m.group(0) for m in re.finditer(LIST_LABELS, spoken)];
+    ordinals = [m.group(0) for m in re.finditer(ORDINAL_LIST, spoken)];
+    low = spoken.lower();
+    repeated = [f"{stem!r} x{low.count(stem)}" for stem in REASON_STEMS if low.count(stem) > 1];
+    opening_ok = len(sentences) >= 2 and sentences[0].startswith("Good morning") and ("week" in sentences[1].lower() or "week" in sentences[0].lower());
+    closing: str = sentences[-1] if sentences else "";
+    closing_ok = len(closing.split()) <= 10 and "that's your monday" not in low and closing not in sentences[:2];
+    leaked = [m.group(0) for m in re.finditer(STYLE_EXAMPLE_ONLY, spoken)];
+    return [
+        {"name": "No list labels", "ok": len(labels) == 0, "detail": ", ".join(labels)},
+        {"name": "No ordinal list", "ok": len(ordinals) == 0, "detail": ", ".join(ordinals)},
+        {"name": "No repeated reason", "ok": len(repeated) == 0, "detail": ", ".join(repeated)},
+        {"name": "Opening and closing", "ok": opening_ok and closing_ok, "detail": ("" if opening_ok else "no week-setting opening; ") + ("" if closing_ok else f"closing: {closing[:60]!r}")},
+        {"name": "Nothing from style example", "ok": len(leaked) == 0, "detail": ", ".join(leaked)}
+    ];
+}
 
 # Which commute modes an alert plausibly affects, from its wording (seed data has no mode field).
 def alert_modes(n: PulseNode) -> list[str] {
@@ -228,7 +265,8 @@ def evaluate(persona: str, why: str, today: int) -> dict[str, any] {
         "ok": len(home_closures) == 0 or len(in_top) > 0,
         "detail": ("none in the home neighborhood" if len(home_closures) == 0 else "in: " + (", ".join(in_top) or "none") + ("; left out: " + ", ".join(left_out) if left_out else ""))
     });
-    (errors, warnings) = check_rules(prof, t["scored"], datetime.now().weekday());
+    (errors, warnings) = check_rules(prof, t["scored"], today);
+    checks.extend(style_checks(spoken));
     checks.append({"name": "Rules apply", "ok": len(errors) == 0, "detail": "; ".join(errors[:4]) + (f" (+{len(errors) - 4} more)" if len(errors) > 4 else "")});
 
     return {
@@ -240,7 +278,7 @@ def evaluate(persona: str, why: str, today: int) -> dict[str, any] {
 
 # ---------------------------------------------------------------- report
 def mode_line -> str {
-    st = pulse_llm.llm_status();
+    st = pulse_llm.llm_config_status();
     if pulse_llm.llm_enabled() {
         return f"LLM on: {st['model']} ({st['provider']})";
     }
@@ -251,12 +289,14 @@ def cell(s: str) -> str {
     return s.replace("|", "/").replace("\n", " ");
 }
 
-def write_report(results: list[dict[str, any]], mode: str) -> str {
+def write_report(results: list[dict[str, any]], mode: str, samples: list[list[str]] = []) -> str {
     check_names = [c["name"] for c in results[0]["checks"]];
     out: list[str] = [
         "# Brief eval", "",
         f"- Run: {datetime.now().isoformat(timespec='seconds')} ({datetime.now().strftime('%A')}; the 'soon' rule and date wording depend on the weekday)",
+        f"- Brief week: {brief_week_label(datetime.now())}",
         f"- Mode: {mode}",
+        f"- Editor used the LLM for {len([r for r in results if r['trace']['editor']['mode'] == 'llm'])}/{len(results)} briefs",
         f"- Result: {len([r for r in results if r['ok']])}/{len(results)} profiles pass", "",
         "| Profile | Editor | Words | " + " | ".join(check_names) + " |",
         "|---|---|---|" + "---|" * len(check_names)
@@ -264,6 +304,12 @@ def write_report(results: list[dict[str, any]], mode: str) -> str {
     for r in results {
         ed = r["trace"]["editor"];
         out.append(f"| {r['persona']} | {ed['mode']} | {r['words']} | " + " | ".join(["PASS" if c["ok"] else "**FAIL**" for c in r["checks"]]) + " |");
+    }
+    if samples {
+        out.extend(["", "## Sample briefs", ""]);
+        for smp in samples {
+            out.extend([f"**{smp[0]}** ({len(smp[1].split())} words)", "", "> " + smp[1], ""]);
+        }
     }
     for r in results {
         t = r["trace"];
@@ -312,15 +358,56 @@ with entry {
     }
     mode = mode_line();
     print(f"Mode: {mode}");
-    today = datetime.now().weekday();
+    if "--require-llm" in sys.argv and not pulse_llm.llm_enabled() {
+        print("--require-llm: the LLM is off, so this run would only test the templates. Set LLM_MODEL and its key.");
+        sys.exit(3);
+    }
+    today = brief_day_index(datetime.now());
     profiles: list[dict[str, any]] = SEEDED + SYNTHETIC;
-    results = [evaluate(str(p["persona"]), str(p["why"]), today) for p in profiles];
+    # --pace SECONDS waits between profiles, for providers with per-minute quotas.
+    pace = 0.0;
+    if "--pace" in sys.argv and sys.argv.index("--pace") + 1 < len(sys.argv) {
+        pace = float(sys.argv[sys.argv.index("--pace") + 1]);
+    }
+    results: list[dict[str, any]] = [];
+    for (i, p) in enumerate(profiles) {
+        if pace > 0.0 and i > 0 {
+            time.sleep(pace);
+        }
+        results.append(evaluate(str(p["persona"]), str(p["why"]), today));
+    }
     for r in results {
         failed = [c["name"] for c in r["checks"] if not c["ok"]];
         warn = f" ({len(r['warnings'])} warning(s))" if r["warnings"] else "";
         print(("PASS " if r["ok"] else "FAIL ") + f"{r['persona']:<17} {r['trace']['editor']['mode']:<8} {r['words']:>3} words" + ("" if r["ok"] else "  failed: " + ", ".join(failed)) + warn);
     }
-    print(f"{len([r for r in results if r['ok']])}/{len(results)} profiles pass. Report: {write_report(results, mode)}");
+    if pulse_llm.llm_enabled() {
+        by_llm = [r for r in results if r["trace"]["editor"]["mode"] == "llm"];
+        print(f"Model used: {pulse_llm.llm_model_label()}. The Editor used it for {len(by_llm)}/{len(results)} briefs.");
+        for r in results {
+            if r["trace"]["editor"]["mode"] != "llm" {
+                print(f"  {r['persona']} fell back to the template: {r['trace']['editor']['error']}");
+            }
+        }
+    } else {
+        print("Model used: none (LLM off); every brief came from the template.");
+    }
+    # Samples for reading: up to 3 LLM briefs from this run, plus one template brief.
+    samples: list[list[str]] = [];
+    for r in results {
+        if r["trace"]["editor"]["mode"] == "llm" and len(samples) < 3 {
+            samples.append([f"LLM ({pulse_llm.llm_model_label()}): {r['persona']}", r["spoken"]]);
+        }
+    }
+    tpl_persona = str(profiles[1]["persona"]);
+    with contextlib.redirect_stdout(io.StringIO()) {
+        tb: any = (root spawn GenerateBrief(persona=tpl_persona, use_ai=False)).reports[0];
+    }
+    samples.append([f"Template: {tpl_persona}", str(tb.summary)]);
+    print(f"{len([r for r in results if r['ok']])}/{len(results)} profiles pass. Report: {write_report(results, mode, samples)}");
+    if "--require-llm" in sys.argv and not all([r["trace"]["editor"]["mode"] == "llm" for r in results]) {
+        sys.exit(1);
+    }
     if not all([r["ok"] for r in results]) {
         sys.exit(1);
     }

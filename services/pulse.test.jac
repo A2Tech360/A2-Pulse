@@ -33,7 +33,7 @@ test "template brief is speakable and stored when the llm is off" {
         b = (root spawn GenerateBrief(persona=persona, use_ai=True)).reports[0];
         assert not b.ai;
         assert re.search(FORBIDDEN, b.summary) is None, b.summary;
-        assert 140 <= len(b.summary.split()) <= 160, f"{persona}: {len(b.summary.split())}";
+        assert 130 <= len(b.summary.split()) <= 180, f"{persona}: {len(b.summary.split())}";
         assert profile_of(persona).last_summary == b.summary;
     }
 }
@@ -71,7 +71,7 @@ test "debug trace covers profile, scores, actions, editor, spoken text and timin
     assert [a["action"] for a in t["actions"]] == [it.action for it in b.items];
     assert t["editor"]["mode"] == "llm";
     assert t["editor"]["raw_llm"] == RAW;
-    assert "Plymouth Rd lane closure" in str(t["editor"]["input"]["items"]);
+    assert "Plymouth Road lane closure" in str(t["editor"]["input"]["items"]);
     assert t["spoken"] == b.summary;
     for k in ["profile_ms", "relevance_ms", "actions_ms", "editor_ms", "llm_ms", "speakable_ms", "persist_ms", "total_ms"] {
         assert k in dict(t["timing_ms"]), k;
@@ -100,7 +100,8 @@ test "converse_query uses the llm filter parser and sanitizes its output" {
     pulse_llm.set_llm(None);
     assert spec.categories == ["music"];
     assert spec.kinds == ["event"];
-    assert spec.price == "any" and spec.time == "week";
+    # "cheap"/"soon" are invalid and reset; "tonight" is then restored by the keyword safety net.
+    assert spec.price == "any" and spec.time == "today";
     assert spec.query == "jazz tonight" and spec.reply == "Updated your view.";
 }
 
@@ -178,4 +179,21 @@ test "speak_brief is rate limited per profile" {
     limited = speak("student");
     assert limited["code"] == "rate_limited" and limited["audio"] == "";
     assert limited["retry_after"] > 0;
+}
+
+test "converse_query keeps clear keyword signals the llm left out" {
+    missed = FilterSpec(categories=["social"], kinds=[], price="any", time="week", reply="Social things.");
+    pulse_llm.set_llm(MockLLM(model_name="mockllm", config={"outputs": [missed]}), "mockllm");
+    spec = converse_query("cheap social stuff saturday near campus", FilterSpec());
+    pulse_llm.set_llm(None);
+    assert spec.categories == ["social"];
+    assert spec.price == "under10" and spec.time == "weekend" and spec.distance == 1.0;
+}
+
+test "converse_query never hides closures behind a topic filter" {
+    tagged = FilterSpec(categories=["civic"], kinds=["alert"], reply="Closures.");
+    pulse_llm.set_llm(MockLLM(model_name="mockllm", config={"outputs": [tagged]}), "mockllm");
+    spec = converse_query("road closures on my way to north campus", FilterSpec());
+    pulse_llm.set_llm(None);
+    assert spec.kinds == ["alert"] and spec.categories == [];
 }

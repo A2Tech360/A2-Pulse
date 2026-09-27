@@ -1,0 +1,87 @@
+"""llm_status diagnostic tests (MockLLM, no network)."""
+
+import os;
+import from jaclang.byllm.lib { MockLLM, MockError }
+
+test "llm_status is disabled unless DEBUG_LLM is set" {
+    os.environ.pop("DEBUG_LLM", None);
+    res = llm_status();
+    assert "disabled" in str(res["error"]);
+    assert "model" not in res and "keys_present" not in res;
+}
+
+test "llm_status reports mode, model and a test call without key values" {
+    os.environ["DEBUG_LLM"] = "1";
+    os.environ["OPENAI_API_KEY"] = "sk-test-secret-value-1234567890";
+    set_llm(MockLLM(model_name="mockllm", config={"outputs": ["ok"]}), "mockllm");
+    res = llm_status();
+    set_llm(None);
+    assert res["llm_on"] and res["model"] == "mockllm";
+    assert res["test"]["ran"] and res["test"]["ok"] and res["test"]["reply"] == "ok";
+    assert res["test"]["latency_ms"] >= 0;
+    assert res["keys_present"]["OPENAI_API_KEY"] is True;
+    assert "sk-test-secret-value-1234567890" not in str(res);
+    os.environ.pop("OPENAI_API_KEY", None);
+}
+
+test "a failing test call returns a redacted error" {
+    os.environ["DEBUG_LLM"] = "1";
+    os.environ["OPENAI_API_KEY"] = "sk-test-secret-value-1234567890";
+    set_llm(MockLLM(model_name="mockllm", config={"outputs": [MockError(error=RuntimeError("401 Incorrect API key provided: sk-test-secret-value-1234567890"))]}), "mockllm");
+    res = llm_status();
+    set_llm(None);
+    assert res["test"]["ran"] and not res["test"]["ok"];
+    assert "401" in str(res["test"]["error"]);
+    assert "sk-test" not in str(res["test"]["error"]), res["test"]["error"];
+    os.environ.pop("OPENAI_API_KEY", None);
+}
+
+test "llm off skips the test call" {
+    os.environ["DEBUG_LLM"] = "1";
+    set_llm(None);
+    res = llm_status();
+    assert not res["llm_on"] and res["test"] == {"ran": False};
+    assert _redact("Bearer abcdefghijkl and key-zzzzzzzz") == "[redacted] and [redacted]";
+}
+
+test "every LLM call error is redacted, so traces and logs never carry key hints" {
+    def fail_auth -> str {
+        raise RuntimeError("Incorrect API key provided: sk-bogus********************0000. See docs.");
+    }
+    res = call_with_deadline(fail_auth, [], 1.0);
+    assert not res["ok"];
+    assert "sk-bogus" not in str(res["error"]) and "[redacted]" in str(res["error"]), res["error"];
+}
+
+test "empty or off LLM_MODEL means the LLM is off, even with a key" {
+    for v in ["", "off", "OFF", " none ", "false", "0", "disabled"] {
+        assert llm_model_off(v), v;
+    }
+    assert not llm_model_off("gpt-4o-mini");
+    saved = os.environ.get("LLM_MODEL");
+    os.environ["LLM_API_KEY"] = "sk-test-000000000000000";
+    os.environ["LLM_MODEL"] = "off";
+    st = _resolve_status();
+    assert not st["on"] and st["reason"] == "LLM_MODEL is off";
+    os.environ["LLM_MODEL"] = "";
+    assert not _resolve_status()["on"];
+    os.environ.pop("LLM_API_KEY", None);
+    if saved is None { os.environ.pop("LLM_MODEL", None); } else { os.environ["LLM_MODEL"] = saved; }
+}
+
+test "Gemini gets the lowest reasoning level; others get none unless set" {
+    saved = os.environ.pop("LLM_REASONING_EFFORT", None);
+    assert reasoning_effort_for("gemini") == "minimal";
+    assert reasoning_effort_for("vertex_ai") == "minimal";
+    assert reasoning_effort_for("openai") == "";
+    os.environ["LLM_REASONING_EFFORT"] = "low";
+    assert reasoning_effort_for("openai") == "low";
+    os.environ["LLM_REASONING_EFFORT"] = "off";
+    assert reasoning_effort_for("gemini") == "";
+    if saved is None { os.environ.pop("LLM_REASONING_EFFORT", None); } else { os.environ["LLM_REASONING_EFFORT"] = saved; }
+}
+
+test "BriefModel adds its extra params to every request" {
+    m = BriefModel(model_name="mockllm", config={"outputs": ["ok"]}, extra_params={"reasoning_effort": "minimal"});
+    assert m.extra_params == {"reasoning_effort": "minimal"};
+}

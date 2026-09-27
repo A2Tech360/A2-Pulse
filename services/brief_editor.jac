@@ -5,50 +5,44 @@ or when the call fails or times out, a template does. Either way the result
 goes through speakable() before it is returned, stored or spoken.
 """
 
+import re;
 import time;
 import from datetime { date }
 import from services { pulse_llm }
 import from services.speakable { speakable, word_count }
+import from services.brief_dates { brief_monday }
+import from services.brief_narrative { narrative_brief }
 
-glob TARGET_MIN_WORDS: int = 140;
-glob TARGET_MAX_WORDS: int = 160;
 # LLM output shorter than this is treated as a failed call.
 glob LLM_MIN_WORDS: int = 60;
+# LLM briefs longer than this, or with relative day words (the listener may hear
+# the brief on any day), are replaced by the template.
+glob LLM_MAX_WORDS: int = 180;
+glob RELATIVE_DAY_WORDS: str = r"(?i)\b(today|tonight|tomorrow)\b";
+# Phrases that exist only in the prompt's style example; seeing one means the LLM copied it.
+glob STYLE_EXAMPLE_ONLY: str = r"(?i)\b(SCOR|homecoming pregame|North Fourth Avenue|cut over on Fifth|Packard bike lanes)\b";
 
-glob ORDINALS: list[str] = ["First", "Second", "Third", "Fourth", "Fifth"];
-glob WHY_LEADS: list[str] = ["Why it matters:", "Why it's here:", "Why you'd care:", "The reason:", "Why it made the list:"];
 
-def llm_write_brief(profile: str, items: str, today: str) -> str by pulse_llm.brief_llm(temperature=0.4, max_tokens=400);
-sem llm_write_brief = """You are the Editor for A2 Pulse, writing a Monday morning audio brief for one Ann Arbor resident. A text-to-speech voice reads it aloud, so write for the ear, not the eye.
-Length: 140 to 160 words, about one minute spoken.
-Cover every numbered item, in the given order. For each one say what it is and when, why it matters to this person, and the one thing to do about it. Always keep the day and time of closures, detours and deadlines. Reasons are listed strongest first; lead with the first one.
-Tone: friendly and direct, like a neighbor who did the homework. Short sentences. Call the listener you. Open with a one-line greeting using their first name and close with a short sign-off.
-Spoken-text rules, all mandatory:
-- No abbreviations. Write Road, Street, Avenue, Boulevard, Drive, Highway, Parkway; North, South, East, West; University of Michigan, not U-M; Monday, not Mon; Saint or Doctor where that is what St. or Dr. means.
-- No symbols. Write and instead of &, at instead of @, 15 dollars instead of $15, percent instead of %.
-- No URLs, emoji, markdown, bullet points, numbered lists, headings or parentheses.
-- Times read naturally, like 7 p.m., 7:30 a.m. or noon. Dates like Tuesday, September 29th.
-- Plain sentences only.""";
+def llm_write_brief(profile: str, items: str, week_of: str) -> str by pulse_llm.brief_llm(temperature=0.5, max_tokens=400);
+sem llm_write_brief = """You are the Editor for A2 Pulse. Write the weekly audio brief for one Ann Arbor resident, for the week of week_of (a Monday), the way a friend who knows Ann Arbor would talk them through their week. A text-to-speech voice reads it aloud, so write for the ear.
+Shape:
+- Greeting with their first name (if the name is You or missing, just Good morning), then ONE sentence that sets up the week: what kind of week it is (busy, a quiet one, one thing to watch).
+- Then talk through the items by group, in this order: getting around (closures, detours, transit), things worth your time (events and clubs), civic (council votes, hearings). Skip a group that has no items. Cover every item; leaving one out is wrong.
+- No numbering and no labels: never First, Second, Third, And finally, Why it matters, The reason.
+- Weave the reason into the sentence (since you follow the hiking club, right on your bike route, close to home) instead of stating it separately. Use the strongest reason, listed first. Never use the same reason phrase twice.
+- One concrete action per item, phrased naturally and varied (worth adding to your calendar, leave five minutes early, worth a look if you have opinions).
+- Smooth transitions between items (On the fun side, Later in the week, Over the weekend, One more thing).
+- Times the way a person says them (Friday night at ten, Sunday afternoon at two, Monday evening at seven). Mention a price only when the item states one or says free.
+- Close with one short, warm line (Have a good week). Never That's your Monday.
+Length: 130 to 170 words, never more than 175. Count before you answer.
+Facts: use only what the items say. Keep each item's name as given; never add or reinterpret details, places, prices, performers or times.
+Days: every weekday in the items falls in the week of week_of. Say days by name, including for Monday items (Monday evening at seven). Never say today, tonight, tomorrow, this morning or this evening: the listener may hear this on any day, including the weekend before. Keep day and time ranges complete, such as Wednesday to Friday, 7 a.m. to 5 p.m.
+Spoken-text rules, all mandatory: no abbreviations (Road, Street, Avenue; North, South, East, West; University of Michigan, not U-M; Monday, not Mon); no symbols (and, not &; 15 dollars, not $15); no URLs, emoji, markdown, lists, headings or parentheses; plain sentences only.
+STYLE EXAMPLE, for tone and shape only. Its places, events and people are not this listener's and must never appear in your brief:
+"Good morning. It's a pretty easy week, with one thing to plan around. If you bike through Kerrytown, North Fourth Avenue is down to one lane until Thursday, so give yourself a few extra minutes or cut over on Fifth. On the fun side, the hiking club you follow is running pickup soccer on the Diag Sunday afternoon at two, which is an easy one to add to your calendar. Friday night, SCOR has a homecoming pregame at ten if you want to start the weekend early. And on Monday evening at seven, city council votes on the Packard bike lanes, right on your route, so it's worth a look if you have opinions. Have a good week." """;
 sem llm_write_brief.profile = "Who the brief is for: name, home area, commute mode and interests.";
-sem llm_write_brief.items = "The ranked items, one per line, each with when, why it matters (strongest reason first) and what to do.";
-sem llm_write_brief.today = "Today's date, for relative phrasing like tomorrow or this weekend.";
-
-def _lower_first(s: str) -> str {
-    return s[:1].lower() + s[1:] if s else s;
-}
-
-def _clause(reasons: list[str], n: int) -> str {
-    picked = [_lower_first(r.strip().rstrip(".")) for r in reasons[:n] if r.strip()];
-    if len(picked) == 0 {
-        return "";
-    }
-    if len(picked) == 1 {
-        return picked[0];
-    }
-    return ", ".join(picked[:-1]) + ", and " + picked[-1];
-}
-
-glob COUNT_WORDS: list[str] = ["no", "one", "two", "three", "four", "five"];
+sem llm_write_brief.items = "This listener's items, already grouped (Getting around, Worth your time, Civic), each with when, reasons (strongest first) and what to do.";
+sem llm_write_brief.week_of = "The Monday this brief is for, e.g. Monday, September 28, 2026. Item days (Monday, Tuesday...) are days of this week.";
 
 """Order an item's reasons by the points each earned (from its trace rules), strongest first.
 A rule counted twice for the same reason only counts once here."""
@@ -69,108 +63,39 @@ def strongest_first(reasons: list[str], rules: list[dict[str, any]]) -> list[str
     return sorted(reasons, key=weight);
 }
 
-"""A reason clause as a sentence without the "Why it matters:" label."""
-def _why_sentence(why: str) -> str {
-    if why.startswith(("near ", "on your ", "close by ", "from ", "coming up ")) {
-        return "It's " + why;
-    }
-    if why.startswith(("affects ", "matches ")) {
-        return "It " + why;
-    }
-    return why[:1].upper() + why[1:];
-}
-
-"""A time phrase placed mid-sentence: "All week" -> "all week"; day names stay capitalized."""
-def _mid_sentence(when: str) -> str {
-    first = when.split(" ")[0].rstrip(",");
-    if first[:3] in ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"] or not first[:1].isupper() {
-        return when;
-    }
-    return when[:1].lower() + when[1:];
-}
-
-"""One item as spoken sentences. Knobs (for trimming): n_reasons, why_lead.
-The heading always keeps the time unless the action already says it."""
-def _item_sentence(i: int, it: dict[str, any], n_reasons: int, why_lead: bool) -> str {
-    name = str(it["name"]);
-    when = str(it.get("when", ""));
-    action = str(it.get("action", "")).strip();
-    head = "And finally" if i == 4 else (ORDINALS[i] if i < len(ORDINALS) else "Next");
-    out = f"{head}, {name}" + (f", {_mid_sentence(when)}." if when and when not in action else ".");
-    why = _clause(list(it.get("reasons", [])), n_reasons);
-    if why and why_lead {
-        out += f" {WHY_LEADS[i % len(WHY_LEADS)]} {why}.";
-    } elif why {
-        out += " " + _why_sentence(why) + ".";
-    }
-    if action {
-        out += " " + action;
-        if not action.endswith((".", "!", "?")) {
-            out += ".";
-        }
-    }
-    return out;
-}
-
-"""Deterministic brief aimed at 140-160 spoken words. When long it trims, last
-item first: the second reason, then the "Why it matters:" labels, then the
-intro. Times are never trimmed. When short it adds sign-off lines that still
-fit. Returns speakable text."""
+"""The template fallback: the narrative, friend-style brief (services/brief_narrative.jac)."""
 def template_brief(first_name: str, items: list[dict[str, any]], today: date | None = None) -> str {
-    n = len(items);
-    hello = "Good morning." if first_name.strip().lower() in ["", "you"] else f"Good morning {first_name.strip()}.";
-    if n == 0 {
-        return speakable(f"{hello} Nothing in Ann Arbor touches your week yet, so enjoy the quiet. Have a good week.", today);
-    }
-    count = COUNT_WORDS[n] if n < len(COUNT_WORDS) else str(n);
-    long_intro = f"{hello} Here are the {count} things that touch your week in Ann Arbor." if n > 1 else f"{hello} One thing touches your week in Ann Arbor.";
-    intros: list[str] = [long_intro, f"{hello} Here's your week."];
-    outro = "That's your Monday. Have a good week.";
-    extras: list[str] = [
-        "Tap thumbs up or down on any card and next week's brief leans your way.",
-        "Every item links back to its source on your cards."
-    ];
-    reasons: list[int] = [2] * n;
-    leads: list[bool] = [True] * n;
-    intro_i: list[int] = [0];
-    def build(extra_count: int) -> str {
-        parts = [intros[intro_i[0]]] + [_item_sentence(i, items[i], reasons[i], leads[i]) for i in range(n)];
-        parts.extend(extras[:extra_count]);
-        parts.append(outro);
-        return speakable(" ".join(parts), today);
-    }
-    text = build(0);
-    for knob in ["reasons", "leads"] {
-        i = n - 1;
-        while word_count(text) > TARGET_MAX_WORDS and i >= 0 {
-            if knob == "reasons" { reasons[i] = 1; }
-            else { leads[i] = False; }
-            text = build(0);
-            i -= 1;
-        }
-    }
-    if word_count(text) > TARGET_MAX_WORDS {
-        intro_i[0] = 1;
-        text = build(0);
-    }
-    k = 1;
-    while word_count(text) < TARGET_MIN_WORDS and k <= len(extras) {
-        longer = build(k);
-        if word_count(longer) > TARGET_MAX_WORDS {
-            break;
-        }
-        text = longer;
-        k += 1;
-    }
-    return text;
+    return narrative_brief(first_name, items, today);
 }
 
-"""The lines the LLM sees for the ranked items."""
-def editor_items_text(items: list[dict[str, any]]) -> str {
+"""The lines the LLM sees for the ranked items. They are already made speakable, so it never has to guess what an
+abbreviation stands for (it read "UMS" as University of Michigan)."""
+def editor_items_text(items: list[dict[str, any]], ref: date | None = None) -> str {
+    groups: list[list[any]] = [["Getting around", ["alert"]], ["Worth your time", ["event", "organizer", "venue"]], ["Civic", ["civic"]]];
     lines: list[str] = [];
-    for (i, it) in enumerate(items) {
-        why = "; ".join([str(r).rstrip(".") for r in list(it.get("reasons", []))[:3]]);
-        lines.append(f"{i + 1}. {it['name']} ({it['kind']}). When: {it['when']}. Why it matters: {why}. What to do: {it['action']}");
+    n = 1;
+    def by_day(it: dict[str, any]) -> int {
+        return int(it.get("day", 0) or 0);
+    }
+    for g in groups {
+        label: str = str(g[0]);
+        kinds: list[str] = list(g[1]);
+        members = [it for it in items if str(it.get("kind", "")) in kinds];
+        if label == "Worth your time" {
+            members = sorted(members, key=by_day);
+        }
+        if len(members) == 0 {
+            continue;
+        }
+        lines.append(label + ":");
+        for it in members {
+            why = "; ".join([speakable(str(r), ref).rstrip(".") for r in list(it.get("reasons", []))[:3]]);
+            name = speakable(str(it["name"]), ref);
+            when = speakable(str(it.get("when", "")), ref);
+            action = speakable(str(it.get("action", "")), ref);
+            lines.append(f"{n}. {name} ({it['kind']}). When: {when}. Reasons: {why}. To do: {action}");
+            n += 1;
+        }
     }
     return "\n".join(lines);
 }
@@ -179,16 +104,18 @@ def editor_items_text(items: list[dict[str, any]]) -> str {
 Returns the spoken text plus everything the debug trace needs."""
 def edit_brief(first_name: str, profile_line: str, items: list[dict[str, any]], use_ai: bool = True, today: date | None = None) -> dict[str, any] {
     ref = today or date.today();
-    today_str = ref.strftime("%A, %B ") + str(ref.day);
-    items_text = editor_items_text(items);
+    # The brief is for its week's Monday (next Monday on weekends); item days are days of that week.
+    monday = brief_monday(ref);
+    week_of = monday.strftime("%A, %B ") + str(monday.day) + monday.strftime(", %Y");
+    items_text = editor_items_text(items, monday);
     out: dict[str, any] = {
         "mode": "template", "model": "", "spoken": "", "raw_llm": None, "error": "",
-        "input": {"profile": profile_line, "items": items_text, "today": today_str},
+        "input": {"profile": profile_line, "items": items_text, "week_of": week_of},
         "llm_ms": 0.0, "template_ms": 0.0, "speakable_ms": 0.0, "words": 0
     };
     if use_ai and pulse_llm.llm_enabled() {
         out["model"] = pulse_llm.llm_model_label();
-        res = pulse_llm.call_with_deadline(llm_write_brief, [profile_line, items_text, today_str]);
+        res = pulse_llm.call_with_deadline(llm_write_brief, [profile_line, items_text, week_of]);
         out["llm_ms"] = res["ms"];
         raw = str(res["value"] or "").strip() if res["ok"] else "";
         out["raw_llm"] = raw if res["ok"] else None;
@@ -198,16 +125,28 @@ def edit_brief(first_name: str, profile_line: str, items: list[dict[str, any]], 
             out["error"] = f"LLM output too short ({word_count(raw)} words)";
         } else {
             t0 = time.perf_counter();
-            out["spoken"] = speakable(raw, ref);
+            spoken: str = speakable(raw, ref);
             out["speakable_ms"] = round((time.perf_counter() - t0) * 1000, 2);
-            out["mode"] = "llm";
+            n = word_count(spoken);
+            relative: re.Match[str] | None = re.search(RELATIVE_DAY_WORDS, spoken);
+            # Guard what the prompt cannot guarantee: length and relative day words.
+            if n > LLM_MAX_WORDS {
+                out["error"] = f"LLM brief too long ({n} words); used the template";
+            } elif relative is not None {
+                out["error"] = f"LLM brief said '{relative.group(0)}'; used the template";
+            } elif re.search(STYLE_EXAMPLE_ONLY, spoken) is not None {
+                out["error"] = "LLM brief copied the style example; used the template";
+            } else {
+                out["spoken"] = spoken;
+                out["mode"] = "llm";
+            }
         }
     } elif use_ai {
         out["error"] = "LLM off";
     }
     if out["mode"] != "llm" {
         t0 = time.perf_counter();
-        out["spoken"] = template_brief(first_name, items, ref);
+        out["spoken"] = template_brief(first_name, items, monday);
         out["template_ms"] = round((time.perf_counter() - t0) * 1000, 2);
     }
     out["words"] = word_count(out["spoken"]);

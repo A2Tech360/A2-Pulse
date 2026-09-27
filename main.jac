@@ -1,5 +1,7 @@
 """A2 Pulse - Ann Arbor's living local graph. Entry: endpoints + router."""
 
+# First: an empty or "off" LLM_MODEL must be normalized before any module with `by llm` loads.
+import services.llm_env;
 import from services.pulse {
     EgoSnapshot, NetworkBrowse, MapSnapshot, SearchArchive, GetDossier, GenerateBrief,
     Feedback,
@@ -12,6 +14,8 @@ import from services.pulse {
 # Per-browser profiles + onboarding endpoints.
 import from services.pulse { get_profile, save_profile, nearest_place, route_places, onboarding_options }
 import from services.event_ingest { sync_online_events, list_live_events, SyncReport }
+# LLM diagnostic (answers only when DEBUG_LLM=1).
+import from services.pulse_llm { llm_status }
 
 import ".styles.global.css";
 import from "@jac/runtime" { Router }

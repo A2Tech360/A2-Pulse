@@ -1418,7 +1418,8 @@ impl GenerateBrief.start {
 impl GenerateBrief.rank {
     t_start = time.perf_counter();
     trace = new_trace(here.persona);
-    today = datetime.now().weekday();
+    # Day index within the brief week (-2 Sat, -1 Sun: weekend briefs are for next week).
+    today = brief_day_index(datetime.now());
     spec = FilterSpec(
         categories=self.categories,
         kinds=self.kinds,
@@ -1552,7 +1553,7 @@ impl GenerateBrief.rank {
 
     # Editor stage: LLM (8s deadline) or template, always passed through speakable().
     editor_items: list[dict] = [
-        {"name": it.name, "kind": it.kind, "when": it.when, "reasons": strongest_first(reasons[it.key], rules[it.key]), "action": it.action}
+        {"name": it.name, "kind": it.kind, "when": it.when, "day": nodes[it.key].day, "reasons": strongest_first(reasons[it.key], rules[it.key]), "action": it.action}
         for it in items
     ];
     profile = here.name + ", lives in " + home_name + ", commutes by " + here.commute + ", into " + ", ".join(interest_names);
@@ -1644,6 +1645,22 @@ impl converse_query(text: str, prior: FilterSpec) -> FilterSpec {
             spec.kinds = [k for k in spec.kinds if k in KIND_TOGGLES];
             if spec.price not in ["any", "free", "under10"] { spec.price = "any"; }
             if spec.time not in ["today", "weekend", "week"] { spec.time = "week"; }
+            # Safety net: where the LLM left a field at its prior value but plain
+            # keywords clearly set it ("cheap", "saturday", "near campus",
+            # "closure", "council"), keep the keyword result.
+            kw = _heuristic_filters(text, prior);
+            if spec.price == prior.price and kw.price != prior.price { spec.price = kw.price; }
+            if spec.time == prior.time and kw.time != prior.time { spec.time = kw.time; }
+            if spec.distance == prior.distance and kw.distance != prior.distance { spec.distance = kw.distance; }
+            for k in ["alert", "civic"] {
+                if k in kw.kinds and k not in prior.kinds and k not in spec.kinds {
+                    spec.kinds = spec.kinds + [k];
+                }
+            }
+            if "alert" in spec.kinds and len(spec.kinds) == 1 {
+                # Alerts carry the community tag only; a topic filter would hide them.
+                spec.categories = [c for c in spec.categories if c == "community"];
+            }
             dval: any = spec.date;
             if not isinstance(dval, str) {
                 spec.date = prior.date;

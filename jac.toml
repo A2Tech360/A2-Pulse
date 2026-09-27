@@ -11,9 +11,15 @@ kind = "web-app"
 # own key env var (OPENAI_API_KEY, ANTHROPIC_API_KEY, GEMINI_API_KEY, ...) is
 # read by LiteLLM directly. "mockllm" is byLLM's built-in null model: every
 # Jac module resolves the ambient `llm` on import and an empty name raises when
-# no key is set, so it only fills the slot while the LLM is off.
+# no key is set, so it only fills the slot while the LLM is off. Jac's `:-`
+# only covers an unset LLM_MODEL; services/llm_env.jac handles empty and "off".
+# LLM_API_KEY (one key for any provider) and LLM_API_BASE (an OpenAI-compatible
+# gateway) apply to the ambient model too; empty means "use the provider's own
+# key env var" and "provider's default endpoint".
 [byllm.model]
 default_model = "${LLM_MODEL:-mockllm}"
+api_key = "${LLM_API_KEY:-}"
+base_url = "${LLM_API_BASE:-}"
 
 
 [jac-shadcn]

@@ -3,6 +3,9 @@
 # on a throwaway graph (JAC_DATA_PATH temp dir) so the dev graph is untouched.
 # Report: reports/eval_briefs.md. Exit code 1 if any profile fails.
 # The LLM mode follows LLM_MODEL (env or .env), so rerun unchanged once a model is set.
+# Pass --require-llm to fail (exit 3) when the LLM is off, and exit 1 when any
+# brief fell back to the template. --pace SECONDS waits between profiles (for
+# per-minute quotas). Override the jac binary with JAC=/path/to/jac.
 set -u
 cd "$(dirname "$0")/.." || exit 2
 JAC="${JAC:-$(command -v jac || echo "$HOME/.local/bin/jac")}"
