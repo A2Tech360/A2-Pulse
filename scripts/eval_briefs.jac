@@ -240,7 +240,7 @@ def evaluate(persona: str, why: str, today: int) -> dict[str, any] {
 
 # ---------------------------------------------------------------- report
 def mode_line -> str {
-    st = pulse_llm.llm_status();
+    st = pulse_llm.llm_config_status();
     if pulse_llm.llm_enabled() {
         return f"LLM on: {st['model']} ({st['provider']})";
     }
@@ -257,6 +257,7 @@ def write_report(results: list[dict[str, any]], mode: str) -> str {
         "# Brief eval", "",
         f"- Run: {datetime.now().isoformat(timespec='seconds')} ({datetime.now().strftime('%A')}; the 'soon' rule and date wording depend on the weekday)",
         f"- Mode: {mode}",
+        f"- Editor used the LLM for {len([r for r in results if r['trace']['editor']['mode'] == 'llm'])}/{len(results)} briefs",
         f"- Result: {len([r for r in results if r['ok']])}/{len(results)} profiles pass", "",
         "| Profile | Editor | Words | " + " | ".join(check_names) + " |",
         "|---|---|---|" + "---|" * len(check_names)
@@ -312,6 +313,10 @@ with entry {
     }
     mode = mode_line();
     print(f"Mode: {mode}");
+    if "--require-llm" in sys.argv and not pulse_llm.llm_enabled() {
+        print("--require-llm: the LLM is off, so this run would only test the templates. Set LLM_MODEL and its key.");
+        sys.exit(3);
+    }
     today = datetime.now().weekday();
     profiles: list[dict[str, any]] = SEEDED + SYNTHETIC;
     results = [evaluate(str(p["persona"]), str(p["why"]), today) for p in profiles];
@@ -320,7 +325,21 @@ with entry {
         warn = f" ({len(r['warnings'])} warning(s))" if r["warnings"] else "";
         print(("PASS " if r["ok"] else "FAIL ") + f"{r['persona']:<17} {r['trace']['editor']['mode']:<8} {r['words']:>3} words" + ("" if r["ok"] else "  failed: " + ", ".join(failed)) + warn);
     }
+    if pulse_llm.llm_enabled() {
+        by_llm = [r for r in results if r["trace"]["editor"]["mode"] == "llm"];
+        print(f"Model used: {pulse_llm.llm_model_label()}. The Editor used it for {len(by_llm)}/{len(results)} briefs.");
+        for r in results {
+            if r["trace"]["editor"]["mode"] != "llm" {
+                print(f"  {r['persona']} fell back to the template: {r['trace']['editor']['error']}");
+            }
+        }
+    } else {
+        print("Model used: none (LLM off); every brief came from the template.");
+    }
     print(f"{len([r for r in results if r['ok']])}/{len(results)} profiles pass. Report: {write_report(results, mode)}");
+    if "--require-llm" in sys.argv and not all([r["trace"]["editor"]["mode"] == "llm" for r in results]) {
+        sys.exit(1);
+    }
     if not all([r["ok"] for r in results]) {
         sys.exit(1);
     }
