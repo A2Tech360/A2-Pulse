@@ -37,3 +37,20 @@ test "undated items: seed weekdays stay, live listings drop" {
     assert in_brief_week("Wed to Fri, 7 AM to 5 PM", "", False, MONDAY);
     assert not in_brief_week("Upcoming", "", True, MONDAY);
 }
+
+test "friendly_when: ISO date-times become card text" {
+    assert friendly_when("2026-10-10 19:30") == "Sat, Oct 10 · 7:30 PM";
+    assert friendly_when("2026-10-10 19:30:00") == "Sat, Oct 10 · 7:30 PM";
+    assert friendly_when("2026-10-02T20:00:00-04:00") == "Fri, Oct 2 · 8:00 PM";
+    assert friendly_when("2026-10-03 09:05") == "Sat, Oct 3 · 9:05 AM";
+    assert friendly_when("2026-10-03 00:00") == "Sat, Oct 3 · 12:00 AM";
+    assert friendly_when("2026-10-03 12:00") == "Sat, Oct 3 · 12:00 PM";
+    assert friendly_when("2026-10-10") == "Sat, Oct 10";
+}
+
+test "friendly_when leaves human text alone" {
+    assert friendly_when("Fri 8:00 PM") == "Fri 8:00 PM";
+    assert friendly_when("Wed to Fri, 7 AM to 5 PM") == "Wed to Fri, 7 AM to 5 PM";
+    assert friendly_when("Saturday, October 10, 2026") == "Saturday, October 10, 2026";
+    assert friendly_when("") == "";
+}
