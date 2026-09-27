@@ -19,6 +19,25 @@ glob LLM_MIN_WORDS: int = 60;
 # the brief on any day), are replaced by the template.
 glob LLM_MAX_WORDS: int = 180;
 glob RELATIVE_DAY_WORDS: str = r"(?i)\b(today|tonight|tomorrow)\b";
+# Reason phrasings: each may appear at most once in a brief (the LLM tends to repeat them).
+glob REASON_PHRASES: list[str] = [
+    "near your home", "close to home", "near your place", "right on your", "along your",
+    "since you follow", "who you follow", "which you follow", "since you're into",
+    "right up your alley", "matches your interest", "your love for", "just around the corner",
+    "close by at", "your part of town", "where you live"
+];
+
+"""The first reason phrase used more than once, or "" if none repeats."""
+def repeated_reason(text: str) -> str {
+    low = text.lower();
+    for p in REASON_PHRASES {
+        if low.count(p) > 1 {
+            return p;
+        }
+    }
+    return "";
+}
+
 # Phrases that exist only in the prompt's style example; seeing one means the LLM copied it.
 glob STYLE_EXAMPLE_ONLY: str = r"(?i)\b(SCOR|homecoming pregame|North Fourth Avenue|cut over on Fifth|Packard bike lanes)\b";
 
@@ -29,13 +48,13 @@ Shape:
 - Greeting with their first name (if the name is You or missing, just Good morning), then ONE sentence that sets up the week: what kind of week it is (busy, a quiet one, one thing to watch).
 - Then talk through the items by group, in this order: getting around (closures, detours, transit), things worth your time (events and clubs), civic (council votes, hearings). Skip a group that has no items. Cover every item; leaving one out is wrong.
 - No numbering and no labels: never First, Second, Third, And finally, Why it matters, The reason.
-- Weave the reason into the sentence (since you follow the hiking club, right on your bike route, close to home) instead of stating it separately. Use the strongest reason, listed first. Never use the same reason phrase twice.
+- Weave the reason into the sentence (since you follow the hiking club, right on your bike route, close to home) instead of stating it separately. Use the strongest reason, listed first. Never use the same reason phrase twice: if two items are both near home or both match an interest, word the second one differently or leave its reason out.
 - One concrete action per item, phrased naturally and varied (worth adding to your calendar, leave five minutes early, worth a look if you have opinions).
 - Smooth transitions between items (On the fun side, Later in the week, Over the weekend, One more thing).
 - Times the way a person says them (Friday night at ten, Sunday afternoon at two, Monday evening at seven). Mention a price only when the item states one or says free.
 - Close with one short, warm line (Have a good week). Never That's your Monday.
-Length: 130 to 170 words, never more than 175. Count before you answer.
-Facts: use only what the items say. Keep each item's name as given; never add or reinterpret details, places, prices, performers or times.
+Length: 120 to 150 words, never more than 160. Count before you answer; shorter is better than padded.
+Facts: use only what the items and profile say. Keep each item's name as given; never add or reinterpret details, places, prices, performers or times. Do not invent anything about the listener or the event: no commutes to work or school that the profile does not state (never "since you walk to work"), no motives or benefits (never "to support our local arts scene", "perfect for fresh food"), no descriptions the item does not give.
 Days: every weekday in the items falls in the week of week_of. Say days by name, including for Monday items (Monday evening at seven). Never say today, tonight, tomorrow, this morning or this evening: the listener may hear this on any day, including the weekend before. Keep day and time ranges complete, such as Wednesday to Friday, 7 a.m. to 5 p.m.
 Spoken-text rules, all mandatory: no abbreviations (Road, Street, Avenue; North, South, East, West; University of Michigan, not U-M; Monday, not Mon); no symbols (and, not &; 15 dollars, not $15); no URLs, emoji, markdown, lists, headings or parentheses; plain sentences only.
 STYLE EXAMPLE, for tone and shape only. Its places, events and people are not this listener's and must never appear in your brief:
@@ -136,6 +155,8 @@ def edit_brief(first_name: str, profile_line: str, items: list[dict[str, any]], 
                 out["error"] = f"LLM brief said '{relative.group(0)}'; used the template";
             } elif re.search(STYLE_EXAMPLE_ONLY, spoken) is not None {
                 out["error"] = "LLM brief copied the style example; used the template";
+            } elif repeated_reason(spoken) {
+                out["error"] = f"LLM brief repeats a reason phrase ('{repeated_reason(spoken)}'); used the template";
             } else {
                 out["spoken"] = spoken;
                 out["mode"] = "llm";

@@ -203,3 +203,14 @@ test "the LLM sees items grouped: getting around, worth your time, civic" {
     text = editor_items_text(ITEMS, TODAY);
     assert text.index("Getting around:") < text.index("Worth your time:") < text.index("Civic:"), text;
 }
+
+test "an LLM brief that repeats a reason phrase falls back to the template" {
+    text = "Good morning Jordan. It's a busy week. The Plymouth Road closure runs Wednesday to Friday, near your home in North Campus. " + " ".join(["Plymouth Road work continues all week."] * 8) + " The bus reroute is Saturday afternoon, near your home too. Have a good week.";
+    mock([text]);
+    out = edit_brief("Jordan", "Jordan", ITEMS, True, TODAY);
+    pulse_llm.set_llm(None);
+    assert out["mode"] == "template";
+    assert "repeats a reason phrase" in str(out["error"]) and "near your home" in str(out["error"]), out["error"];
+    assert repeated_reason("since you follow A. since you follow B.") == "since you follow";
+    assert repeated_reason("since you follow A, from B, who you follow.") == "";
+}

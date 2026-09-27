@@ -18,7 +18,12 @@ import contextlib;
 import from pathlib { Path }
 import from datetime { datetime }
 import from services { pulse_llm }
-import from services.brief_dates { brief_day_index, brief_week_label }
+import from services.brief_dates { brief_day_index, brief_week_label, brief_monday }
+import from services.event_dates { extract_event_date }
+import from services.speakable { speakable }
+import from services.event_ingest { sync_online_events }
+import json;
+import from datetime { timedelta }
 import from services.pulse {
     GenerateBrief, UserProfile, PulseNode, Place, Venue, Category, Organizer, Alert,
     LivesAt, CommutesVia, InterestedIn, Follows, AffectsRoute, Near, HostedAt, TaggedAs, OrganizedBy,
@@ -26,7 +31,7 @@ import from services.pulse {
 }
 
 glob REPORT_PATH: Path = Path(str(__file__ or ".")).resolve().parent.parent / "reports" / "eval_briefs.md";
-glob MIN_WORDS: int = 130;
+glob MIN_WORDS: int = 120;
 glob MAX_WORDS: int = 180;
 
 glob SEEDED: list[dict[str, str]] = [
@@ -43,6 +48,18 @@ glob SYNTHETIC: list[dict[str, any]] = [
     {"persona": "eval-nofollow", "name": "Ava, Central Campus", "why": "No follows, Central Campus, walk", "home": "pl-central", "commute": "walk", "via": ["pl-central"], "interests": ["civic", "music", "social"], "follows": []},
     {"persona": "eval-oneinterest", "name": "Theo, Main Street", "why": "Single interest (music), Main Street, bike", "home": "pl-main", "commute": "bike", "via": ["pl-main", "pl-kerry"], "interests": ["music"], "follows": ["o-llama"]}
 ];
+
+# Real-data testers (--real): extra profiles run against the live-ingested graph.
+glob TESTERS: list[dict[str, any]] = [
+    {"persona": "tester-kerry-bike", "name": "Kerrytown cyclist", "why": "Tester: Kerrytown, bike; food, music, arts", "home": "pl-kerry", "commute": "bike", "via": ["pl-kerry", "pl-main"], "interests": ["food", "music", "arts"], "follows": []},
+    {"persona": "tester-north-bus", "name": "North Campus bus rider", "why": "Tester: North Campus, bus to Central Campus; academic, social", "home": "pl-north", "commute": "bus", "via": ["pl-north", "pl-plymouth", "pl-central"], "interests": ["academic", "social"], "follows": []},
+    {"persona": "tester-main-car", "name": "Main Street driver", "why": "Tester: Main Street, car; civic, food, nightlife", "home": "pl-main", "commute": "car", "via": ["pl-main", "pl-kerry"], "interests": ["civic", "food", "nightlife"], "follows": []}
+];
+# Listing sites and publications: never a host, never "someone you follow".
+glob PLATFORMS: str = r"(?i)\b(eventbrite|ann arbor observer|happening (?:@|at) michigan|marquee arts|allevents|meetup)\b";
+glob GENERIC_VENUES: list[str] = ["ann arbor", "ypsilanti", "online", "virtual", "tba", "tbd", "various locations", "see website", "multiple locations", "upcoming"];
+glob CLOSE_BY_WORDS: str = r"(?i)\b(close by|around the corner|a short trip to|nearby|just down the (?:street|road))\b";
+glob INTEREST_WORDS: str = r"(?i)(?:into|interest in|interests in|love for|fan of|if you like|your) (music|food|sports|academic|social|arts|community|outdoor|civic|networking|nightlife|comedy)\b";
 
 # Independent of speakable(): anything here in the spoken text is a miss.
 glob ABBREVIATIONS: list[str] = [
@@ -233,7 +250,7 @@ def check_rules(prof: UserProfile, scored: list[dict[str, any]], today: int) -> 
     return (errors, warnings);
 }
 
-def evaluate(persona: str, why: str, today: int) -> dict[str, any] {
+def evaluate(persona: str, why: str, today: int, real: bool = False) -> dict[str, any] {
     # `jac run` echoes walker reports to stdout; keep the console to the verdicts.
     with contextlib.redirect_stdout(io.StringIO()) {
         b: any = (root spawn GenerateBrief(persona=persona, use_ai=True, debug=True)).reports[0];
@@ -267,6 +284,9 @@ def evaluate(persona: str, why: str, today: int) -> dict[str, any] {
     });
     (errors, warnings) = check_rules(prof, t["scored"], today);
     checks.extend(style_checks(spoken));
+    if real {
+        checks.extend(real_checks(prof, items, t["scored"], spoken));
+    }
     checks.append({"name": "Rules apply", "ok": len(errors) == 0, "detail": "; ".join(errors[:4]) + (f" (+{len(errors) - 4} more)" if len(errors) > 4 else "")});
 
     return {
@@ -274,6 +294,144 @@ def evaluate(persona: str, why: str, today: int) -> dict[str, any] {
         "checks": checks, "errors": errors, "warnings": warnings,
         "ok": all([c["ok"] for c in checks])
     };
+}
+
+# ---------------------------------------------------------------- real-data checks
+glob FOOD_WORDS: str = r"(?i)\b(food|market|tasting|brunch|dinner|lunch|breakfast|cook|chef|restaurant|cafe|coffee|beer|wine|pizza|potluck|bake|farm)\b";
+
+"""Data-quality notes on the live snapshot (things no brief check can see)."""
+def snapshot_notes(snap: list[dict[str, any]]) -> list[str] {
+    notes: list[str] = [];
+    long_venues = [e for e in snap if any([len(str(v)) > 45 or str(e["name"]).split(" ")[0] in str(v) and len(str(v)) > 25 for v in e["venues"]])];
+    platform_orgs = [e for e in snap if any([re.search(PLATFORMS, str(o)) is not None for o in e["organizers"]])];
+    guessed_price = [e for e in snap if 0.0 < float(e["price"]) < 5.0];
+    food_no_words = [e for e in snap if "food" in list(e["tags"]) and re.search(FOOD_WORDS, str(e["name"])) is None];
+    no_date = [e for e in snap if not re.search(r"\d{4}-\d{2}-\d{2}", str(e["when"])) and int(e["day"]) < 0];
+    def ex(rows: list[dict[str, any]]) -> str {
+        return "; ".join([str(e["name"])[:50] for e in rows[:3]]);
+    }
+    notes.append(f"- Venue names with scraped text: {len(long_venues)} of {len(snap)} (e.g. {ex(long_venues)})");
+    notes.append(f"- Organizer is a listing site or publication: {len(platform_orgs)} (e.g. {ex(platform_orgs)})");
+    notes.append(f"- Implausible guessed prices (under 5 dollars, not free): {len(guessed_price)} (e.g. {ex(guessed_price)})");
+    notes.append(f"- Tagged food with no food word in the name: {len(food_no_words)} of {len([e for e in snap if "food" in list(e["tags"])])} food-tagged (e.g. {ex(food_no_words)})");
+    notes.append(f"- No usable date: {len(no_date)} (e.g. {ex(no_date)})");
+    return notes;
+}
+def _is_real_venue(v: any) -> bool {
+    name = str(v.name).strip().lower();
+    return bool(str(v.address).strip()) and name not in GENERIC_VENUES and re.search(PLATFORMS, name) is None;
+}
+
+"""Checks that only make sense on live data. Returns (checks, bug entries)."""
+def real_checks(prof: UserProfile, items: list[any], scored: list[dict[str, any]], spoken: str) -> list[dict[str, any]] {
+    monday = brief_monday(datetime.now());
+    sunday = monday + timedelta(days=6);
+    nodes = [_find_key(str(it.key)) for it in items];
+    checks: list[dict[str, any]] = [];
+
+    # 1. Every item inside the brief week (Monday..Sunday).
+    outside: list[str] = [];
+    for n in nodes {
+        if n is None {
+            continue;
+        }
+        d: any = extract_event_date(str(n.when), monday.year);
+        if d is not None {
+            if d < monday or d > sunday {
+                outside.append(f"{n.name} ({d.isoformat()})");
+            }
+        } elif not (0 <= int(n.day) <= 6) {
+            outside.append(f"{n.name} (no date: {n.when!r})");
+        }
+    }
+    checks.append({"name": "Inside brief week", "ok": len(outside) == 0, "detail": "; ".join(outside)});
+
+    # 2. No spoken year, ISO date, HH:MM:SS or raw 24-hour time.
+    bad_times = re.findall(r"\b(?:19|20)\d{2}\b|\d{4}-\d{2}-\d{2}|\b\d{1,2}:\d{2}:\d{2}\b|\b\d{1,2}:\d{2}\b(?!\s?[ap]\.m\.)", spoken);
+    checks.append({"name": "Spoken dates and times", "ok": len(bad_times) == 0, "detail": ", ".join(bad_times[:5])});
+
+    # 3. No listing site or publication named as a host or follow.
+    hosts: list[str] = [m.group(0) for m in re.finditer(PLATFORMS, spoken)];
+    for n in nodes {
+        if n is None {
+            continue;
+        }
+        for o in [n ->:OrganizedBy:->][?:Organizer] {
+            if re.search(PLATFORMS, str(o.name)) {
+                hosts.append(f"{n.name} organized by {o.name}");
+            }
+        }
+    }
+    checks.append({"name": "No platform as host", "ok": len(hosts) == 0, "detail": "; ".join(sorted(set(hosts)))[:300]});
+
+    # 4. "Close by" only with a real venue.
+    fake_near: list[str] = [];
+    real_near = 0;
+    top_keys = [str(it.key) for it in items];
+    for s in scored {
+        if str(s["key"]) not in top_keys {
+            continue;
+        }
+        for r in s["rules"] {
+            if str(r["rule"]) != "near_venue" {
+                continue;
+            }
+            vname = str(r["detail"]).replace("Close by at ", "");
+            n = _find_key(str(s["key"]));
+            venues = [v for v in [n ->:HostedAt:->][?:Venue] if v.name == vname] if n is not None else [];
+            if len(venues) > 0 and _is_real_venue(venues[0]) {
+                real_near += 1;
+            } else {
+                fake_near.append(f"{s['name']} near {vname!r}");
+            }
+        }
+    }
+    said_near = len(re.findall(CLOSE_BY_WORDS, spoken));
+    if said_near > real_near {
+        fake_near.append(f"says close by {said_near}x, {real_near} real venue(s)");
+    }
+    checks.append({"name": "Close by has a real venue", "ok": len(fake_near) == 0, "detail": "; ".join(sorted(set(fake_near)))[:300]});
+
+    # 5. A named interest matches the tags of the item it is said about.
+    wrong_interest: list[str] = [];
+    sentences = [x for x in re.split(r"(?<=[.!?])\s+(?=[A-Z])", spoken) if x.strip()];
+    for sent in sentences {
+        for m in re.finditer(INTEREST_WORDS, sent) {
+            cat = m.group(1).lower();
+            for (it, n) in zip(items, nodes) {
+                if n is None {
+                    continue;
+                }
+                spoken_name: str = speakable(str(it.name));
+                words: list[str] = [str(w) for w in re.findall(r"[A-Za-z']{4,}", spoken_name) if str(w).lower() not in ["with", "from", "night", "free", "your", "this"]];
+                # Whole words only: "Round" must not match "around".
+                if len(words) > 0 and any([re.search(r"(?i)\b" + re.escape(w) + r"\b", sent) is not None for w in words[:3]]) {
+                    tags = [c.name for c in [n ->:TaggedAs:->][?:Category]];
+                    if cat not in tags {
+                        wrong_interest.append(f"{it.name}: said {cat}, tags {tags}");
+                    }
+                }
+            }
+        }
+    }
+    checks.append({"name": "Interest matches tags", "ok": len(wrong_interest) == 0, "detail": "; ".join(sorted(set(wrong_interest)))[:300]});
+
+    # 6. A home or route closure that fits the travel mode is present; alerts in the brief fit the mode.
+    places = [p for p in [prof ->:LivesAt:->][?:Place]] + [p for p in [prof ->:CommutesVia:->][?:Place]];
+    fitting: list[any] = [];
+    for p in places {
+        for a in [p <-:AffectsRoute:<-][?:Alert] {
+            if a.sub == "closure" and prof.commute in alert_modes(a) and a not in fitting {
+                fitting.append(a);
+            }
+        }
+    }
+    in_top = [a for a in fitting if a.key in top_keys];
+    mismatched = [f"{n.name} affects {'/'.join(alert_modes(n))}, commute is {prof.commute}" for n in nodes if n is not None and n.kind == "alert" and prof.commute not in alert_modes(n)];
+    closure_ok = (len(fitting) == 0 or len(in_top) > 0) and len(mismatched) == 0;
+    detail = ("" if len(fitting) == 0 or len(in_top) > 0 else "missing: " + ", ".join([a.name for a in fitting]) + "; ") + "; ".join(mismatched);
+    checks.append({"name": "Closure present and fits mode", "ok": closure_ok, "detail": detail});
+    return checks;
 }
 
 # ---------------------------------------------------------------- report
@@ -289,7 +447,7 @@ def cell(s: str) -> str {
     return s.replace("|", "/").replace("\n", " ");
 }
 
-def write_report(results: list[dict[str, any]], mode: str, samples: list[list[str]] = []) -> str {
+def write_report(results: list[dict[str, any]], mode: str, samples: list[list[str]] = [], data_note: str = "") -> str {
     check_names = [c["name"] for c in results[0]["checks"]];
     out: list[str] = [
         "# Brief eval", "",
@@ -304,6 +462,28 @@ def write_report(results: list[dict[str, any]], mode: str, samples: list[list[st
     for r in results {
         ed = r["trace"]["editor"];
         out.append(f"| {r['persona']} | {ed['mode']} | {r['words']} | " + " | ".join(["PASS" if c["ok"] else "**FAIL**" for c in r["checks"]]) + " |");
+    }
+    fails: dict[str, list[str]] = {};
+    for r in results {
+        for c in r["checks"] {
+            if not c["ok"] {
+                fails.setdefault(str(c["name"]), []).append(f"{r['persona']}: {cell(str(c['detail']))}");
+            }
+        }
+    }
+    if data_note or fails {
+        out.extend(["", "## Bug list (failures by type)", ""]);
+        if data_note {
+            out.extend([data_note, ""]);
+        }
+        def by_count(kv: tuple) -> int {
+            return -len(kv[1]);
+        }
+        for (name, rows) in sorted(fails.items(), key=by_count) {
+            out.append(f"### {name}: {len(rows)} profile(s)");
+            out.extend(["- " + x for x in rows]);
+            out.append("");
+        }
     }
     if samples {
         out.extend(["", "## Sample briefs", ""]);
@@ -353,7 +533,27 @@ with entry {
         sys.exit(2);
     }
     _ensure_seed();
-    for spec in SYNTHETIC {
+    real = "--real" in sys.argv;
+    data_note = "";
+    if real {
+        # Snapshot of the live graph: pull the public calendars into this throwaway graph now.
+        with contextlib.redirect_stdout(io.StringIO()) {
+            rep: any = sync_online_events(True);
+        }
+        live = [n for n in [_ensure_seed() -->][?:PulseNode] if str(n.key).startswith("live-")];
+        snap = [{"key": n.key, "name": n.name, "when": n.when, "day": n.day, "source": n.source_name,
+                 "organizers": [o.name for o in [n ->:OrganizedBy:->][?:Organizer]],
+                 "venues": [v.name for v in [n ->:HostedAt:->][?:Venue]],
+                 "tags": [c.name for c in [n ->:TaggedAs:->][?:Category]], "price": n.price} for n in live];
+        snap_path = REPORT_PATH.parent / "real_snapshot.json";
+        snap_path.parent.mkdir(parents=True, exist_ok=True);
+        snap_path.write_text(json.dumps(snap, indent=1, default=lambda (o: any) -> str { return str(o); }), encoding="utf-8");
+        data_note = f"Live snapshot: {len(live)} ingested events from {len(rep.sources)} sources ({', '.join(rep.sources)}); errors: {'; '.join(rep.errors) or 'none'}. Saved to {snap_path.name}.";
+        data_note += "\n\nData quality notes (live snapshot):\n" + "\n".join(snapshot_notes(snap));
+        print(data_note);
+    }
+    extra = TESTERS if real else [];
+    for spec in SYNTHETIC + extra {
         build_synthetic(spec);
     }
     mode = mode_line();
@@ -363,7 +563,7 @@ with entry {
         sys.exit(3);
     }
     today = brief_day_index(datetime.now());
-    profiles: list[dict[str, any]] = SEEDED + SYNTHETIC;
+    profiles: list[dict[str, any]] = SEEDED + SYNTHETIC + extra;
     # --pace SECONDS waits between profiles, for providers with per-minute quotas.
     pace = 0.0;
     if "--pace" in sys.argv and sys.argv.index("--pace") + 1 < len(sys.argv) {
@@ -374,7 +574,7 @@ with entry {
         if pace > 0.0 and i > 0 {
             time.sleep(pace);
         }
-        results.append(evaluate(str(p["persona"]), str(p["why"]), today));
+        results.append(evaluate(str(p["persona"]), str(p["why"]), today, real));
     }
     for r in results {
         failed = [c["name"] for c in r["checks"] if not c["ok"]];
@@ -404,7 +604,7 @@ with entry {
         tb: any = (root spawn GenerateBrief(persona=tpl_persona, use_ai=False)).reports[0];
     }
     samples.append([f"Template: {tpl_persona}", str(tb.summary)]);
-    print(f"{len([r for r in results if r['ok']])}/{len(results)} profiles pass. Report: {write_report(results, mode, samples)}");
+    print(f"{len([r for r in results if r['ok']])}/{len(results)} profiles pass. Report: {write_report(results, mode, samples, data_note)}");
     if "--require-llm" in sys.argv and not all([r["trace"]["editor"]["mode"] == "llm" for r in results]) {
         sys.exit(1);
     }
