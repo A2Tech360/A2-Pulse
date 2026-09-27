@@ -2,37 +2,48 @@
 
 **Your Ann Arbor, briefed and mapped.**
 
-A2 Pulse pulls Ann Arbor's scattered local information into one graph: U-M events,
-downtown venues, road closures, transit detours and City Council items. It turns
-that graph into a one-minute spoken brief for your week, plus an interactive map
-and a graph explorer. Built with [Jac](https://www.jaseci.org/) for the A2Tech360
-Hackathon (Local Impact track), University of Michigan, Sept 26–27, 2026.
+A2 Pulse pulls Ann Arbor’s scattered local information into one graph — U-M events,
+downtown venues, road closures, transit detours, and City Council items — then turns
+that graph into a one-minute spoken brief for your week, plus an interactive map and
+a graph explorer.
+
+Built with [Jac](https://www.jaseci.org/) for the A2Tech360 Hackathon (Local Impact
+track), University of Michigan, Sept 26–27, 2026.
+
+| Page | URL | What it does |
+|------|-----|----------------|
+| My Monday | `/monday` | Personalized weekly brief + voice |
+| Map | `/map` | Pins and road-snapped closures |
+| Network | `/network` | Living knowledge graph + dossiers |
+| Welcome | `/welcome` | First-time onboarding |
+
+---
 
 ## Features
 
-- **My Monday (voice brief).** The five items that matter most to you this week,
-  each with a short "why" and "what to do", written as a spoken brief and read
-  aloud by ElevenLabs in the voice you pick. Switch between the demo personas or
-  your own profile. Thumbs up/down on an item adjusts that profile's weights for
-  the next brief.
-- **Onboarding.** New visitors get three quick steps (home, commute route,
-  interests, who to follow) that turn this browser's "You" profile into a real
-  node in the graph, then land on My Monday.
-- **Map.** Every event, club, closure and council item on Google Maps. Closures
-  and detours are snapped onto the road network. Filter by category, price, day
-  and distance, or ask in plain English ("free music near campus").
-- **Network.** The knowledge graph itself: browse by places, topics and hosts,
-  open a dossier for any node, and follow its links. Filters are shared with the
-  map.
-- **Live sync.** Opening the app pulls seven public calendars into the graph
-  (see [Data sources](#data-sources)), then refreshes the map and network. The
-  server skips repeat syncs within 3 minutes and never runs two at once; "Sync
-  live events" on the Network page forces one.
+- **My Monday (voice brief).** The five items that matter most this week, each with a
+  short “why” and “what to do,” written as a spoken brief and read aloud by
+  ElevenLabs. Switch between demo personas (Student, Shop owner) or **You**. Thumbs
+  up/down adjusts that profile’s interest weights for the next brief.
+- **Onboarding.** Three quick steps (home, commute, interests, who to follow) that
+  turn this browser’s “You” profile into a real node in the graph, then land on My
+  Monday.
+- **Map.** Events, clubs, closures, and council items on Google Maps. Closures and
+  detours are snapped onto the road network. Filter by category, price, day, and
+  distance, or ask in plain English (“free music near campus”).
+- **Network.** Browse the knowledge graph by places, topics, and hosts; open a
+  dossier (with photos) for any node. A single sidebar switches between **Here**
+  (where you are in the graph) and **Detail** (the selected node). Hover starts
+  prefetching the dossier so clicks feel instant. Filters stay in sync with the Map.
+- **Live sync (manual).** Use **Sync live events** on the Network page to pull
+  public calendars into the graph. The server skips repeat syncs within a few
+  minutes and never runs two at once. Sync is **not** automatic on every page open.
+
+---
 
 ## How the brief works
 
-The graph links each profile to where they live, how they commute, what they're
-into, and who they follow:
+Each profile is linked into the graph:
 
 ```
 User ─lives_at──────→ Place ←─affects_route─ Alert / Council item
@@ -41,146 +52,158 @@ User ─interested_in─→ Category ←─tagged_as─ Event
 User ─follows───────→ Organizer ←─organized_by─ Event
 ```
 
-The `GenerateBrief` walker starts at the profile, walks those edges and scores
-everything it reaches: closures on your home or commute route weigh most, then
-organizers you follow, your interests, and things happening near you. Items due
-this week get a boost. The top five go to the Editor (`services/brief_editor.jac`),
-which has the LLM write a 120–150 word brief when one is configured, and falls
-back to a conversational template (`services/brief_narrative.jac`) otherwise.
-`services/speakable.jac` then rewrites the text for text-to-speech (times,
-dates, abbreviations) before it goes to ElevenLabs.
+`GenerateBrief` starts at the profile, walks those edges, and scores what it
+reaches: closures on your home or commute weigh most, then organizers you follow,
+your interests, and things near you. Items in the brief’s Monday–Sunday week get a
+boost. Candidate walks are capped so ranking stays responsive after a large live
+sync.
 
-To see how every candidate was scored, open My Monday with `?debug=1`.
+The top five go to the Editor (`services/brief_editor.jac`). With an LLM
+configured, it writes a short spoken brief (about 120–150 words); otherwise a
+conversational template (`services/brief_narrative.jac`) is used. Each LLM call has
+an **8-second** deadline and falls back to the template. `services/speakable.jac`
+then cleans times, dates, and abbreviations for ElevenLabs.
+
+Open My Monday with `?debug=1` to see how every candidate was scored.
+
+---
 
 ## Getting started
 
-Everyone on the team must run the **same Jac version**. The code uses `sv import`
-and `.cl.jac` files, which Jac 0.35 and later reject, so use the release the
-team is on (check with `jac --version`).
+Use the **same Jac version** as the team. This project uses `sv import` and
+`.cl.jac` files (Jac **0.34.x**; check with `jac --version`).
 
 ```bash
-jac install              # install Python and npm dependencies
-cp .env.example .env     # then fill in your keys
-jac start main.jac       # serves the app on http://localhost:8000
+jac install                 # Python + npm deps
+cp .env.example .env        # then fill in keys you have
+jac start --dev main.jac    # http://localhost:8000 (or --port 8010)
 ```
 
-The app opens on My Monday (`/monday`); new visitors see onboarding
-(`/welcome`) first. The other pages are `/map` and `/network`.
+New visitors hit `/welcome` once; returning visitors open on `/monday`.
 
 ### Environment variables
 
-See `.env.example` for the full list with comments.
+Full comments live in `.env.example`.
 
 | Variable | Needed for | Without it |
 |---|---|---|
-| `GOOGLE_MAPS_API_KEY` | The map (Maps JavaScript API); also the Roads API for snapping closures | The Map page shows setup instructions; closures snap via OSRM instead |
-| `ELEVENLABS_API_KEY` | Reading the brief aloud | The brief is text only |
-| `ELEVENLABS_VOICE_ID`, `ELEVENLABS_MODEL` | Default voice and model (optional) | Built-in defaults |
-| `LLM_MODEL` + that provider's key | LLM-written brief, plain-English search, pin summaries. Any LiteLLM model name, e.g. `gpt-4o-mini` (`OPENAI_API_KEY`), `claude-haiku-4-5` (`ANTHROPIC_API_KEY`), `gemini/gemini-2.0-flash` (`GEMINI_API_KEY`) | **Off by default**: template brief and keyword search, no LLM calls |
-| `LLM_API_KEY`, `LLM_API_BASE` | One key for any provider, or an OpenAI-compatible gateway (optional) | The provider-specific key is used |
+| `GOOGLE_MAPS_API_KEY` | Map (Maps JS API); Roads API for snapping closures | Map shows setup help; closures snap via OSRM |
+| `ELEVENLABS_API_KEY` | Spoken brief | Text-only brief |
+| `ELEVENLABS_VOICE_ID`, `ELEVENLABS_MODEL` | Default voice / model | Built-in defaults |
+| `LLM_MODEL` + provider key | LLM brief, Ask-box filters, pin/dossier helpers. LiteLLM names, e.g. `gpt-4o-mini`, `claude-haiku-4-5`, `gemini/gemini-3.1-flash-lite` | Templates + heuristics only (LLM off) |
+| `OPENAI_API_KEY` / `ANTHROPIC_API_KEY` / `GEMINI_API_KEY` (or `GOOGLE_API_KEY`) | Provider auth for the model you chose | That provider won’t run |
+| `LLM_API_KEY`, `LLM_API_BASE` | One key for any provider, or an OpenAI-compatible gateway | Named provider key is used |
 
-Each LLM call has an 8-second deadline and falls back to the templates on failure.
+Leave `LLM_MODEL` unset (or `off`) to run with **no** LLM calls.
+
+---
 
 ## Data sources
 
-**Live**, synced when the app opens (`services/event_ingest.jac`):
+**Live** (when you sync from Network), via `services/event_ingest.jac`:
 
-| Source | How it's read |
+| Source | How it’s read |
 |---|---|
-| Happening @ Michigan | JSON API, this week and next ([below](#happening--michigan)) |
+| Happening @ Michigan | JSON API for this week and next ([below](#happening--michigan)) |
 | The Ark, Ann Arbor Observer | The Events Calendar (Tribe) JSON API |
-| Eventbrite (Ann Arbor) | Page data embedded in the listing page |
-| UMS, Ann Arbor District Library, Marquee Arts | Page text, with LLM extraction when an LLM is configured |
+| Eventbrite (Ann Arbor) | Embedded listing page data |
+| UMS, Ann Arbor District Library, Marquee Arts | Page text; LLM extraction when an LLM is on |
 
 **Built-in demo data** (`services/seed_data.jac`): venues, clubs, road closures,
-TheRide detours, City Council items and the demo personas. Closure and detour
-paths are snapped onto roads by `services/road_snap.py` (Google Roads API when a
-Maps key is set, otherwise OSRM), cached in `services/.road_snap_cache.json`.
+TheRide detours, City Council items, and demo personas. Paths are snapped by
+`services/road_snap.py` (Google Roads when a Maps key is set, else OSRM) and
+cached in `services/.road_snap_cache.json`.
 
 ### Happening @ Michigan
 
 `services/umich_feed.py` fetches `events.umich.edu/week/<date>/json?v=2` for this
-week and next. It keeps only events that haven't ended, and finds each
-building's coordinates with OpenStreetMap's Nominatim, cached in
-`services/.geocache.json`. Online events, away games and events that name only
-a room aren't pinned on the map. Prices are left unknown unless the listing
-states one.
+week and next, keeps events that haven’t ended, and geocodes buildings with
+Nominatim (cached in `services/.geocache.json`). Online-only / away / room-only
+listings aren’t pinned. Prices stay unknown unless the listing states one.
 
-The feed sits behind Cloudflare, which often blocks server requests with a 403.
-When that happens, sync uses the last good response in
-`services/.um_feed_cache.json`. To refresh it by hand, open
-`http://events.umich.edu/week/<today's date>/json?v=2` in your browser, save the
-page as `services/.um_feed_cache.json`, and sync again. The server log shows
-which was used:
+Cloudflare often blocks server fetches (403). Sync then reuses
+`services/.um_feed_cache.json`. To refresh by hand: open the JSON URL in a
+browser, save it as that cache file, and sync again. Logs look like:
 
 ```
 [umich_feed] using cached feed from Sun Sep 27 11:48 AM
 [umich_feed] placed 150/210 upcoming events (0 past skipped, 60 new geocodes)
 ```
 
-Each sync looks up at most 60 new buildings (Nominatim allows about one request
-per second), and stops for that sync if Nominatim rate-limits it, so the number
-of placed events climbs over the first few syncs.
+Each sync geocodes at most ~60 new buildings (Nominatim ~1 req/s).
+
+---
 
 ## Project structure
 
 ```
-main.jac                       App entry: mounts AppShell
+main.jac                       Entry: mounts AppShell + public walkers/functions
 components/
-  AppShell.jac                 Header, routes, shared filters, theme, sync on open
+  AppShell.jac                 Header, routes, shared filters, theme
   WelcomePage.jac              Onboarding
   MondayPage.jac               Voice brief, personas, voice picker
-  BriefDebugPanel.jac          Per-item scoring (My Monday with ?debug=1)
-  MapPage.jac, MapChrome.jac   Map page, legend and address search
-  NetworkPage.jac              Graph explorer and dossiers
-  FilterBar.jac                Category, price, day and distance filters
-  google_maps.cl.jac           Google Maps loader, pins and closure lines
-  profile_store.cl.jac         This browser's profile ID
-  net.cl.jac                   Timeouts and fallbacks for server calls
-  pulse_theme.cl.jac           Shared palette, labels and filter defaults
-  ui/                          jac-shadcn components
+  BriefDebugPanel.jac          Scoring panel (?debug=1)
+  MapPage.jac, MapChrome.jac   Map, legend, address search
+  NetworkPage.jac              Graph explorer, dossiers, manual sync
+  FilterBar.jac                Shared filters (Map / Network)
+  google_maps.cl.jac           Maps loader, pins, closure lines
+  profile_store.cl.jac         Per-browser profile ID
+  net.cl.jac                   Client timeouts / Promise helpers
+  pulse_theme.cl.jac           Palette, labels, filter defaults
+  ui/                          jac-shadcn primitives
 services/
-  pulse.jac, pulse.impl.jac    Graph schema, walkers and endpoints
-  seed_data.jac                Demo graph: places, venues, events, alerts, personas
-  brief_*.jac                  Brief week window, Editor, template, debug traces
+  pulse.jac, pulse.impl.jac    Graph schema, walkers, dossiers, brief ranking
+  seed_data.jac                Demo graph
+  brief_*.jac                  Week window, Editor, template, traces
   pulse_llm.jac, llm_env.jac   Provider-neutral LLM setup
-  speakable.jac                Text-to-speech cleanup
-  voice_guard.jac              Rate limits and allowed voices for speak_brief
+  speakable.jac, voice_guard.jac   TTS cleanup + rate limits
   event_ingest.jac/.impl.jac   Live calendar sync
-  umich_feed.py                Happening @ Michigan fetch and geocoding
-  road_snap.py                 Snaps closure paths onto roads
-  event_parse.py, event_*.jac  Per-site parsers, categories, dates and times
+  umich_feed.py, road_snap.py  Feed + road snapping
+  event_parse.py, event_*.jac  Parsers, categories, dates/times
 scripts/eval_briefs            Brief quality eval on a throwaway graph
 ```
 
+Graph state persists under `.jac/data/` between runs.
+
+---
+
 ## API
 
-Every `walker:pub` and `def:pub` is a POST endpoint (`/walker/<name>` and
-`/function/<name>`), for example:
+Every `walker:pub` / `def:pub` is a POST endpoint (`/walker/<name>`,
+`/function/<name>`). Examples (adjust host/port to match `jac start`):
 
 ```bash
-# Sync live calendars into the graph
+# Force-pull live calendars into the graph
 curl -X POST localhost:8000/function/sync_online_events \
   -H 'content-type: application/json' -d '{"force": true}'
 
-# A persona's brief ("student", "shop" or "custom")
+# Persona brief: "student", "shop", or "custom"
 curl -X POST localhost:8000/walker/GenerateBrief \
-  -H 'content-type: application/json' -d '{"persona": "student"}'
+  -H 'content-type: application/json' \
+  -d '{"persona": "student", "use_ai": true}'
 ```
+
+---
 
 ## Development
 
-- Tests live next to the code as `*.test.jac`; run them with `jac test`.
-- `scripts/eval_briefs` generates briefs for the demo personas and six synthetic
-  profiles on a throwaway graph and writes `reports/eval_briefs.md`
-  (`--require-llm` fails if the LLM is off).
-- Server changes need a restart. The graph persists between runs in `.jac/`.
+- Tests sit next to the code as `*.test.jac` — run with `jac test`.
+- `jac check <file>` type-checks; follow `jac guide …` hints in diagnostics.
+- `scripts/eval_briefs` scores demo + synthetic profiles into
+  `reports/eval_briefs.md` (`--require-llm` fails if the LLM is off).
+- **Client** Jac (`.cl.jac` / JSX) hot-reloads; **server** Jac needs a process
+  restart after changes.
+- After schema changes, a stale `.jac/data/anchor_store.db` can slow loads
+  (schema-drift warnings). Resetting that DB and re-seeding (then syncing live
+  events again if you need them) clears it.
+
+---
 
 ## Tech
 
-[Jac](https://www.jaseci.org/) (graph, walkers, full-stack app) ·
-[byLLM](https://www.jaseci.org/) via LiteLLM (any provider) ·
-[ElevenLabs](https://elevenlabs.io) (voice) ·
-[Google Maps JavaScript API and Roads API](https://developers.google.com/maps) ·
-[OpenStreetMap](https://www.openstreetmap.org) (Nominatim geocoding, OSRM routing) ·
-[jac-shadcn](https://ui.shadcn.com) and Tailwind (UI)
+[Jac](https://www.jaseci.org/) (graph, walkers, full-stack) ·
+[byLLM](https://www.jaseci.org/) via LiteLLM ·
+[ElevenLabs](https://elevenlabs.io) ·
+[Google Maps JavaScript + Roads APIs](https://developers.google.com/maps) ·
+[OpenStreetMap](https://www.openstreetmap.org) (Nominatim, OSRM) ·
+[jac-shadcn](https://ui.shadcn.com) + Tailwind
