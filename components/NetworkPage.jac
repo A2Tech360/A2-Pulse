@@ -36,7 +36,7 @@ import from .pulse_theme {
     default_filters,
     all_categories
 }
-import from .net { with_timeout }
+import from .net { with_timeout, gather, browse_timeout_ms, photo_timeout_ms }
 
 glob CAMPUS_LAT: float = 42.2780;
 glob CAMPUS_LNG: float = -83.7382;
@@ -146,12 +146,29 @@ def:pub DossierPanel(
         }
         nid = dossier.id;
         photoReq.current = nid;
+        w: any = window;
+        cache: any = w.__pulsePhotoCache;
+        if not cache {
+            cache = {};
+            w.__pulsePhotoCache = cache;
+        }
+        if nid in cache {
+            photos = cache[nid];
+            photosLoading = False;
+            return;
+        }
         photosLoading = True;
         photos = [];
         try {
-            media: DossierMedia = await dossier_images(nid);
+            media: DossierMedia = await with_timeout(
+                dossier_images(nid),
+                DossierMedia(images=[], queries=[], ai=False),
+                photo_timeout_ms()
+            );
+            imgs: list[DossierImage] = media.images if media.images else [];
+            cache[nid] = imgs;
             if photoReq.current == nid {
-                photos = media.images if media.images else [];
+                photos = imgs;
             }
         } except Exception {
             if photoReq.current == nid {
@@ -178,10 +195,9 @@ def:pub DossierPanel(
     }
 
     return
-        <aside
-            data-scroll-panel="1"
-            className="absolute inset-y-0 right-0 z-30 flex w-full max-w-[min(100%,420px)] flex-col overflow-y-auto overscroll-contain border-l border-border bg-background/95 pt-6 pb-6 pl-6 pr-6 shadow-xl backdrop-blur-sm animate-in fade-in slide-in-from-right-4 duration-300 sm:pl-8 sm:pr-8"
-            role="dialog"
+        <div
+            className="flex flex-col"
+            role="region"
             aria-label="Node dossier"
         >
             <div className="flex items-start justify-between gap-4">
@@ -392,11 +408,15 @@ def:pub DossierPanel(
                     {"Center here"}
                 </Button>
             </div>
-        </aside>;
+        </div>;
 }
 
 def:pub NetworkPage(
-    filters: dict, onFilters: Callable[[dict], None], dark: bool = True, syncVersion: int = 0
+    filters: dict,
+    onFilters: Callable[[dict], None],
+    dark: bool = True,
+    syncVersion: int = 0,
+    onSynced: Callable[[], None] = lambda {}
 ) -> JsxElement {
     has focusKey: str = "root",
         focusName: str = "Ann Arbor",
@@ -412,6 +432,7 @@ def:pub NetworkPage(
         searched: str = "",
         selected: Dossier | None = None,
         selectedId: str = "",
+        sidebarTab: str = "here",
         hoverId: str = "",
         showFilters: bool = False,
         expandAll: bool = False,
@@ -473,7 +494,12 @@ def:pub NetworkPage(
         syncing: bool = False,
         syncMsg: str = "",
         didAutoSync: bool = False,
-        filtersSeen: Ref[bool] = Ref(False);
+        filtersSeen: Ref[bool] = Ref(False),
+        dossierCache: Ref[dict[str, any]] = Ref({}),
+        dossierPending: Ref[dict[str, any]] = Ref({}),
+        idlePrefetchTimer: Ref[any] = Ref(None),
+        idlePrefetchQueue: Ref[list[str]] = Ref([]),
+        browseInflight: Ref[int] = Ref(0);
 
     def key_in_expanded(key: str) -> bool {
         for k in expandedKeys {
@@ -599,18 +625,22 @@ def:pub NetworkPage(
         return res;
     }
 
-    # 8 s deadline: a slow or dead server shows the error + Retry instead of hanging.
+    # Soft deadline: show Retry instead of hanging forever on a stalled browse.
     async def fetch_browse(want: str) -> Snapshot | None {
+        browseInflight.current = int(browseInflight.current) + 1;
         res: any = None;
+        out: Snapshot | None = None;
         try {
-            res = await with_timeout(browse_raw(want), None);
+            res = await with_timeout(browse_raw(want), None, browse_timeout_ms());
+            if res is not None and res.reports and len(res.reports) > 0 {
+                out = res.reports[0];
+            }
         } except Exception {
-            return None;
+            out = None;
         }
-        if res is not None and res.reports and len(res.reports) > 0 {
-            return res.reports[0];
-        }
-        return None;
+        n: int = int(browseInflight.current) - 1;
+        browseInflight.current = 0 if n < 0 else n;
+        return out;
     }
 
     async def load_overview {
@@ -667,13 +697,31 @@ def:pub NetworkPage(
         trail = [{"key": "root", "name": "All"}];
         selected = None;
         selectedId = "";
+        sidebarTab = "here";
         loading = False;
         exp: list[str] = ["root"];
+        edge_have: dict[str, bool] = {};
+        for e in merged_edges {
+            edge_have[e.source + ">" + e.target] = True;
+        }
+        # Start every lens browse at once; await in order so the canvas fills as
+        # each returns (wall time ≈ slowest lens, not the sum).
+        lens_tasks: list[any] = [];
+        for lens_key in LENS_ONLY {
+            lens_tasks = lens_tasks + [fetch_browse(lens_key)];
+        }
+        ti: int = 0;
         for lens_key in LENS_ONLY {
             if int(rootSeq.current) != rs or activeTab != "all" {
                 return;
             }
-            child = await fetch_browse(lens_key);
+            child: Snapshot | None = None;
+            try {
+                child = await lens_tasks[ti];
+            } except Exception {
+                child = None;
+            }
+            ti += 1;
             if int(rootSeq.current) != rs or activeTab != "all" {
                 return;
             }
@@ -709,15 +757,12 @@ def:pub NetworkPage(
                 i += 1;
             }
             for e in child.edges {
-                dup: bool = False;
-                for ex in merged_edges {
-                    if ex.source == e.source and ex.target == e.target {
-                        dup = True;
-                    }
+                ek: str = e.source + ">" + e.target;
+                if ek in edge_have {
+                    continue;
                 }
-                if not dup {
-                    merged_edges = merged_edges + [e];
-                }
+                edge_have[ek] = True;
+                merged_edges = merged_edges + [e];
             }
             # Progressive merge — keep hubs pinned via live positions.
             nodes = merged_nodes;
@@ -731,6 +776,7 @@ def:pub NetworkPage(
         edges = merged_edges;
         expandedKeys = exp;
         error = "";
+        queue_idle_dossier_prefetch();
     }
 
     async def load_lens_tab(lens_key: str, lens_name: str) {
@@ -795,13 +841,20 @@ def:pub NetworkPage(
         ];
         selected = None;
         selectedId = "";
+        sidebarTab = "here";
         error = "";
         loading = False;
+        queue_idle_dossier_prefetch();
     }
 
     async def switch_tab(tab_key: str, tab_name: str) {
         reset_camera();
         expandAll = False;
+        idlePrefetchQueue.current = [];
+        if idlePrefetchTimer.current {
+            clearTimeout(idlePrefetchTimer.current);
+            idlePrefetchTimer.current = None;
+        }
         if tab_key != "lens-community" {
             showPost = False;
         }
@@ -1004,6 +1057,7 @@ def:pub NetworkPage(
             expandedKeys = expandedKeys + [key];
         }
         loading = False;
+        queue_idle_dossier_prefetch();
     }
 
     async def open_all_connections(hub: str = "") {
@@ -1029,53 +1083,76 @@ def:pub NetworkPage(
             done[k] = True;
             opened = opened + [k];
         }
-        # Two hops from focus. Leaves (City alerts) still expand once to show ties.
-        queue: list[str] = [want];
+        # Two hops from focus. Fetch each depth wave in parallel.
+        frontier: list[str] = [want];
         depth_of: dict[str, int] = {};
         depth_of[want] = 0;
-        qi: int = 0;
-        while qi < len(queue) {
+        depth: int = 0;
+        while len(frontier) > 0 and depth <= 2 {
             if int(expandSeq.current) != es or int(rootSeq.current) != rs_at_start {
                 return;
             }
             if len(cur_nodes) >= 90 {
                 break;
             }
-            k: str = queue[qi];
-            qi += 1;
-            dpth: int = depth_of[k] if k in depth_of else 0;
-            if dpth > 2 {
-                continue;
+            to_fetch: list[str] = [];
+            for k in frontier {
+                if k not in done {
+                    to_fetch = to_fetch + [k];
+                }
             }
-            if k not in done {
-                snap = await fetch_browse(k);
+            if len(to_fetch) > 0 {
+                tasks: list[any] = [];
+                for k in to_fetch {
+                    tasks = tasks + [fetch_browse(k)];
+                }
+                snaps: list[any] = [];
+                try {
+                    snaps = await gather(tasks);
+                } except Exception {
+                    snaps = [];
+                    for k in to_fetch {
+                        snaps = snaps + [None];
+                    }
+                }
                 if int(expandSeq.current) != es or int(rootSeq.current) != rs_at_start {
                     return;
                 }
-                if snap is not None {
-                    merged = merge_snap(k, snap, cur_nodes, cur_edges);
-                    cur_nodes = merged["nodes"];
-                    cur_edges = merged["edges"];
-                    done[k] = True;
-                    opened = opened + [k];
+                si: int = 0;
+                for k in to_fetch {
+                    snap: any = snaps[si] if si < len(snaps) else None;
+                    si += 1;
+                    if snap is not None {
+                        merged = merge_snap(k, snap, cur_nodes, cur_edges);
+                        cur_nodes = merged["nodes"];
+                        cur_edges = merged["edges"];
+                        done[k] = True;
+                        opened = opened + [k];
+                    }
                 }
             }
-            if dpth >= 2 {
-                continue;
+            if depth >= 2 {
+                break;
             }
-            cks: list[str] = expand_child_keys(
-                k, cur_nodes, cur_edges, include_leaves=(dpth == 0)
-            );
-            if len(cks) == 0 and dpth == 0 {
-                cks = canvas_hub_seeds(k, cur_nodes);
-            }
-            for ck in cks {
-                if ck in depth_of {
-                    continue;
+            next_front: list[str] = [];
+            for k in frontier {
+                dpth: int = depth_of[k] if k in depth_of else 0;
+                cks: list[str] = expand_child_keys(
+                    k, cur_nodes, cur_edges, include_leaves=(dpth == 0)
+                );
+                if len(cks) == 0 and dpth == 0 {
+                    cks = canvas_hub_seeds(k, cur_nodes);
                 }
-                depth_of[ck] = dpth + 1;
-                queue = queue + [ck];
+                for ck in cks {
+                    if ck in depth_of {
+                        continue;
+                    }
+                    depth_of[ck] = dpth + 1;
+                    next_front = next_front + [ck];
+                }
             }
+            frontier = next_front;
+            depth += 1;
         }
         if int(expandSeq.current) != es or int(rootSeq.current) != rs_at_start {
             return;
@@ -1207,6 +1284,7 @@ def:pub NetworkPage(
             if "Skipped" in rep.message and len(nodes) > 0 {
                 # Keep the current canvas — don't abort an in-flight overview.
             } else {
+                onSynced();
                 await reload_active_tab();
             }
         } except Exception {
@@ -1222,9 +1300,10 @@ def:pub NetworkPage(
         await load_overview();
     }
 
-    # AppShell syncs calendars when the app opens; redraw once it brings new data.
+    # Redraw after a manual sync bumps AppShell.syncVersion (also refreshes Map).
     can with [syncVersion] entry {
         if syncVersion > 0 and not syncing {
+            clear_dossier_cache();
             reload_active_tab();
         }
     }
@@ -1921,6 +2000,110 @@ def:pub NetworkPage(
         return res;
     }
 
+    def clear_dossier_cache {
+        dossierCache.current = {};
+        dossierPending.current = {};
+        idlePrefetchQueue.current = [];
+        if idlePrefetchTimer.current {
+            clearTimeout(idlePrefetchTimer.current);
+            idlePrefetchTimer.current = None;
+        }
+    }
+
+    async def fetch_and_cache_dossier(id: str) -> any {
+        cache: dict[str, any] = dossierCache.current as dict[str, any];
+        if id in cache {
+            return cache[id];
+        }
+        pend: dict[str, any] = dossierPending.current as dict[str, any];
+        pending: any = pend[id] if id in pend else None;
+        if not pending {
+            pending = with_timeout(fetch_dossier(id), None);
+            pend[id] = pending;
+        }
+        res: any = None;
+        try {
+            res = await pending;
+        } except Exception {
+            res = None;
+        }
+        pend[id] = None;
+        d: any = None;
+        if res is not None and res.reports and len(res.reports) > 0 {
+            d = res.reports[0];
+        }
+        if d {
+            cache[id] = d;
+        }
+        return d;
+    }
+
+    def queue_idle_dossier_prefetch {
+        # Opportunistic only: visible leaf nodes, one at a time, never while loading.
+        cache: dict[str, any] = dossierCache.current as dict[str, any];
+        seen: dict[str, bool] = {};
+        q: list[str] = [];
+        for n in nodes {
+            if not is_leaf_kind(n.kind) {
+                continue;
+            }
+            if n.id in cache or n.id in seen {
+                continue;
+            }
+            seen[n.id] = True;
+            q = q + [n.id];
+            if len(q) >= 6 {
+                break;
+            }
+        }
+        idlePrefetchQueue.current = q;
+        if idlePrefetchTimer.current {
+            return;
+        }
+        idlePrefetchTimer.current = setTimeout(
+            lambda {
+                run_idle_dossier_prefetch();
+            },
+            1200
+        );
+    }
+
+    async def run_idle_dossier_prefetch {
+        idlePrefetchTimer.current = None;
+        if loading or int(browseInflight.current) > 0 {
+            idlePrefetchTimer.current = setTimeout(
+                lambda {
+                    run_idle_dossier_prefetch();
+                },
+                1500
+            );
+            return;
+        }
+        w: any = window;
+        if w.document and w.document.hidden {
+            return;
+        }
+        q: list[str] = idlePrefetchQueue.current as list[str];
+        if len(q) == 0 {
+            return;
+        }
+        nid: str = q[0];
+        idlePrefetchQueue.current = q[1:];
+        try {
+            await fetch_and_cache_dossier(nid);
+        } except Exception {
+            _ = None;
+        }
+        if len(idlePrefetchQueue.current as list[str]) > 0 and not loading {
+            idlePrefetchTimer.current = setTimeout(
+                lambda {
+                    run_idle_dossier_prefetch();
+                },
+                900
+            );
+        }
+    }
+
     async def run_search(q: str) {
         query = q;
         if not q.strip() {
@@ -1946,13 +2129,22 @@ def:pub NetworkPage(
 
     async def open_dossier(id: str) {
         selectedId = id;
-        res: any = None;
-        try {
-            res = await with_timeout(fetch_dossier(id), None);
-        } except Exception {
-            res = None;
+        sidebarTab = "detail";
+        cache: dict[str, any] = dossierCache.current as dict[str, any];
+        if id in cache {
+            selected = cache[id];
+            return;
         }
-        selected = res.reports[0] if res is not None and res.reports and len(res.reports) > 0 else None;
+        selected = None;
+        d: any = await fetch_and_cache_dossier(id);
+        if selectedId != id {
+            return;
+        }
+        selected = d;
+        if selected is None {
+            selectedId = "";
+            sidebarTab = "here";
+        }
     }
 
     def select_node(id: str) {
@@ -2005,6 +2197,7 @@ def:pub NetworkPage(
     def close_dossier {
         selected = None;
         selectedId = "";
+        sidebarTab = "here";
     }
 
     def set_focus(key: str, name: str) {
@@ -2028,6 +2221,7 @@ def:pub NetworkPage(
         focusName = name;
         selected = None;
         selectedId = "";
+        sidebarTab = "here";
         results = [];
         query = "";
     }
@@ -2067,6 +2261,7 @@ def:pub NetworkPage(
         focusName = sn;
         selected = None;
         selectedId = "";
+        sidebarTab = "here";
     }
 
     def go_root {
@@ -2077,6 +2272,7 @@ def:pub NetworkPage(
         activeTab = "all";
         selected = None;
         selectedId = "";
+        sidebarTab = "here";
         results = [];
         query = "";
         reset_camera();
@@ -2331,6 +2527,7 @@ def:pub NetworkPage(
                     </div>}
                 {not loading
                     and not error
+                    and activeTab != "lens-community"
                     and len(nodes) <= 1
                     and <div
                         className="absolute inset-0 z-10 flex items-center justify-center pl-6 pr-6"
@@ -2799,116 +2996,158 @@ def:pub NetworkPage(
                         {f"{len(nodes)} nodes · {len(edges)} ties"}
                     </span>
                 </div>
-                {#* -------- dossier overlay (click a bubble) -------- *#}
-                {selected is not None
-                    and <DossierPanel
-                        dossier={selected}
-                        onClose={close_dossier}
-                        onOpenNode={open_from_dossier}
-                        onCenter={recenter}
-                    />}
             </div>
-            {#* ---------------- side column: path, filters ---------------- *#}
+            {#* ---------------- side column: here + detail tabs ---------------- *#}
             <aside
                 data-scroll-panel="1"
                 className="relative z-20 flex w-full flex-col gap-5 overflow-y-auto overscroll-contain border-t bg-background pt-6 pb-6 pl-6 pr-6 lg:max-h-[calc(100svh-230px)] lg:w-[360px] lg:border-l lg:border-t-0"
             >
-                <div className="flex flex-col gap-3">
-                    <div className="flex items-baseline justify-between">
-                        <span className="kicker text-muted-foreground">
-                            {"You are here"}
-                        </span>
-                        {focusKey != "root"
-                            and <button
-                                type="button"
-                                onClick={lambda (e: MouseEvent) { go_root(); }}
-                                className="kicker inline-flex items-center gap-1 text-primary hover:underline"
-                            >
-                                <HugeiconsIcon
-                                    icon={ArrowLeft01Icon}
-                                    strokeWidth={2}
-                                    className="size-3.5"
-                                />
-                                {"Root"}
-                            </button>}
-                    </div>
-                    <h3 className="font-display text-2xl font-bold leading-tight">
-                        {focusName}
-                    </h3>
-                    <nav
-                        className="flex flex-wrap items-center gap-1 text-xs"
-                        aria-label="Browse path"
+                {selectedId != ""
+                    and <div
+                        className="flex items-center gap-1 border-b border-border pb-3"
+                        role="tablist"
+                        aria-label="Sidebar panels"
                     >
-                        {for (i, step) in enumerate(trail) {
-                            <span key={str(step["key"]) + str(i)} className="flex items-center gap-1">
-                                {i > 0 and <span className="text-muted-foreground">{"/"}</span>}
-                                <button
-                                    type="button"
-                                    onClick={bind_trail_click(i)}
-                                    className={(
-                                        "rounded px-1 py-0.5 font-medium transition-colors "
-                                        + (
-                                            "text-foreground"
-                                                if i == len(trail) - 1
-                                                else "text-muted-foreground hover:text-foreground hover:bg-muted"
-                                        )
-                                    )}
-                                >
-                                    {str(step["name"])}
-                                </button>
-                            </span>
-                        }}
-                    </nav>
-                    <p className="text-xs text-muted-foreground">
-                        {"Click a hub to dig in. Events open the dossier. Pinch/scroll to spread clusters · drag empty space to pan · yank a node to bounce."}
-                    </p>
-                    <Button
-                        type="button"
-                        size="sm"
-                        variant="outline"
-                        disabled={syncing}
-                        onClick={lambda (e: MouseEvent) { run_online_sync(True); }}
-                        className="mt-1 w-full"
-                    >
-                        {(
-                            "Syncing calendars…"
-                            if syncing
-                            else "Sync live events"
-                        )}
-                    </Button>
-                    {syncMsg
-                        and <p className="text-[11px] leading-snug text-muted-foreground">
-                            {syncMsg}
-                        </p>}
-                </div>
-                <div className="border-t pt-4">
-                    <button
-                        type="button"
-                        onClick={lambda (e: MouseEvent) { showFilters = not showFilters; }}
-                        className="kicker flex w-full items-center justify-between text-foreground"
-                    >
-                        <span>{"Filters & ask"}</span>
-                        <span>{"Hide" if showFilters else "Show"}</span>
-                    </button>
-                    {showFilters
-                        and <div className="mt-3">
-                            <FilterBar filters={filters} onChange={onFilters} dark={dark}/>
-                        </div>}
-                </div>
-                <div className="border-t pt-4">
-                    <div className="flex flex-col gap-1">
-                        <span className="kicker text-muted-foreground">
-                            {"The dossier"}
-                        </span>
-                        <p className="text-sm text-muted-foreground">
-                            {(
-                                "Open — see the panel on the graph."
-                                    if selected is not None
-                                    else "Leaf nodes (events, closures, civic) open a file with when, where, who, and the source."
+                        <button
+                            type="button"
+                            role="tab"
+                            aria-selected={sidebarTab == "here"}
+                            onClick={lambda (e: MouseEvent) { sidebarTab = "here"; }}
+                            className={(
+                                "rounded-md pt-1.5 pb-1.5 pl-3 pr-3 text-xs font-medium transition-colors "
+                                + (
+                                    "bg-foreground text-background"
+                                        if sidebarTab == "here"
+                                        else "text-muted-foreground hover:bg-muted hover:text-foreground"
+                                )
                             )}
-                        </p>
-                    </div>
-                </div>
+                        >
+                            {"Here"}
+                        </button>
+                        <button
+                            type="button"
+                            role="tab"
+                            aria-selected={sidebarTab == "detail"}
+                            onClick={lambda (e: MouseEvent) { sidebarTab = "detail"; }}
+                            className={(
+                                "min-w-0 flex-1 truncate rounded-md pt-1.5 pb-1.5 pl-3 pr-3 text-left text-xs font-medium transition-colors "
+                                + (
+                                    "bg-foreground text-background"
+                                        if sidebarTab == "detail"
+                                        else "text-muted-foreground hover:bg-muted hover:text-foreground"
+                                )
+                            )}
+                        >
+                            {(
+                                selected.name
+                                    if selected is not None
+                                    else "Detail"
+                            )}
+                        </button>
+                    </div>}
+                {sidebarTab == "detail"
+                    and selectedId != ""
+                    and <div className="flex flex-col gap-4">
+                        {selected is not None
+                            and <DossierPanel
+                                dossier={selected}
+                                onClose={close_dossier}
+                                onOpenNode={open_from_dossier}
+                                onCenter={recenter}
+                            />}
+                        {selected is None
+                            and <div className="flex flex-col gap-3">
+                                <Skeleton className="h-4 w-20"/>
+                                <Skeleton className="h-8 w-48"/>
+                                <Skeleton className="h-40 w-full rounded-xl"/>
+                                <Skeleton className="h-16 w-full"/>
+                            </div>}
+                    </div>}
+                {(sidebarTab != "detail" or selectedId == "")
+                    and <div className="flex flex-col gap-5">
+                        <div className="flex flex-col gap-3">
+                            <div className="flex items-baseline justify-between">
+                                <span className="kicker text-muted-foreground">
+                                    {"You are here"}
+                                </span>
+                                {focusKey != "root"
+                                    and <button
+                                        type="button"
+                                        onClick={lambda (e: MouseEvent) { go_root(); }}
+                                        className="kicker inline-flex items-center gap-1 text-primary hover:underline"
+                                    >
+                                        <HugeiconsIcon
+                                            icon={ArrowLeft01Icon}
+                                            strokeWidth={2}
+                                            className="size-3.5"
+                                        />
+                                        {"Root"}
+                                    </button>}
+                            </div>
+                            <h3 className="font-display text-2xl font-bold leading-tight">
+                                {focusName}
+                            </h3>
+                            <nav
+                                className="flex flex-wrap items-center gap-1 text-xs"
+                                aria-label="Browse path"
+                            >
+                                {for (i, step) in enumerate(trail) {
+                                    <span key={str(step["key"]) + str(i)} className="flex items-center gap-1">
+                                        {i > 0 and <span className="text-muted-foreground">{"/"}</span>}
+                                        <button
+                                            type="button"
+                                            onClick={bind_trail_click(i)}
+                                            className={(
+                                                "rounded px-1 py-0.5 font-medium transition-colors "
+                                                + (
+                                                    "text-foreground"
+                                                        if i == len(trail) - 1
+                                                        else "text-muted-foreground hover:text-foreground hover:bg-muted"
+                                                )
+                                            )}
+                                        >
+                                            {str(step["name"])}
+                                        </button>
+                                    </span>
+                                }}
+                            </nav>
+                            <p className="text-xs text-muted-foreground">
+                                {"Click a hub to dig in. Events open a detail tab here. Pinch/scroll to spread clusters · drag empty space to pan · yank a node to bounce."}
+                            </p>
+                            <Button
+                                type="button"
+                                size="sm"
+                                variant="outline"
+                                disabled={syncing}
+                                onClick={lambda (e: MouseEvent) { run_online_sync(True); }}
+                                className="mt-1 w-full"
+                            >
+                                {(
+                                    "Syncing calendars…"
+                                    if syncing
+                                    else "Sync live events"
+                                )}
+                            </Button>
+                            {syncMsg
+                                and <p className="text-[11px] leading-snug text-muted-foreground">
+                                    {syncMsg}
+                                </p>}
+                        </div>
+                        <div className="border-t pt-4">
+                            <button
+                                type="button"
+                                onClick={lambda (e: MouseEvent) { showFilters = not showFilters; }}
+                                className="kicker flex w-full items-center justify-between text-foreground"
+                            >
+                                <span>{"Filters & ask"}</span>
+                                <span>{"Hide" if showFilters else "Show"}</span>
+                            </button>
+                            {showFilters
+                                and <div className="mt-3">
+                                    <FilterBar filters={filters} onChange={onFilters} dark={dark}/>
+                                </div>}
+                        </div>
+                    </div>}
             </aside>
         </div>;
 }

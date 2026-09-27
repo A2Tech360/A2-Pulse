@@ -8,6 +8,11 @@ glob KIND_TOGGLES: list[str] = ["event", "organizer", "alert", "civic"];
 glob _SEED_MIGRATED: bool = False;
 glob MAX_NODES: int = 90;
 glob MAX_BROWSE_CHILDREN: int = 24;
+# GenerateBrief: reverse TaggedAs over live ingest is huge (Map skipped it for ~40s).
+# Cap edge loads so My Monday returns on a seeded+synced graph.
+glob MAX_BRIEF_PER_INTEREST: int = 36;
+glob MAX_BRIEF_NEAR_EVENTS: int = 24;
+glob MAX_BRIEF_CANDIDATES: int = 80;
 glob BROWSE_LENSES: list[dict] = [
     {
         "key": "lens-places",
@@ -1453,6 +1458,8 @@ impl GenerateBrief.rank {
     reasons: dict[str, list[str]] = {};
     nodes: dict[str, PulseNode] = {};
     rules: dict[str, list[dict]] = {};
+    # Categories learned while scoring — avoid a second TaggedAs walk per candidate.
+    known_cats: dict[str, list[str]] = {};
     # "Your week" is the brief's Monday through Sunday; anything dated outside it is skipped.
     monday = brief_monday(datetime.now());
     week_ok: dict[str, bool] = {};
@@ -1468,6 +1475,18 @@ impl GenerateBrief.rank {
         return week_ok[n.key];
     }
 
+    def remember_cat(k: str, cat: str) -> None {
+        if not cat {
+            return;
+        }
+        if k not in known_cats {
+            known_cats[k] = [];
+        }
+        if cat not in known_cats[k] {
+            known_cats[k].append(cat);
+        }
+    }
+
     def bump(n: PulseNode, pts: float, why: str, rule: str) -> None {
         if not _passes(n, spec, self.clat, self.clng) {
             return;
@@ -1477,6 +1496,9 @@ impl GenerateBrief.rank {
             return;
         }
         if k not in scores {
+            if len(scores) >= MAX_BRIEF_CANDIDATES {
+                return;
+            }
             scores[k] = 0.0;
             reasons[k] = [];
             nodes[k] = n;
@@ -1496,27 +1518,53 @@ impl GenerateBrief.rank {
                 bump(x, 2.2, "Affects " + p.name + ", where you live or travel", "affects_place");
             }
         }
+        near_n: int = 0;
         for v in [p <-:Near:<-][?:Venue] {
+            if near_n >= MAX_BRIEF_NEAR_EVENTS {
+                break;
+            }
             for e in [v <-:HostedAt:<-][?:Event] {
+                if near_n >= MAX_BRIEF_NEAR_EVENTS {
+                    break;
+                }
+                near_n = near_n + 1;
                 bump(e, 1.0, "Close by at " + v.name, "near_venue");
             }
         }
     }
     for c in interests {
+        if len(scores) >= MAX_BRIEF_CANDIDATES {
+            break;
+        }
+        seen: int = 0;
         for x in [c <-:TaggedAs:<-][?:PulseNode] {
+            if seen >= MAX_BRIEF_PER_INTEREST or len(scores) >= MAX_BRIEF_CANDIDATES {
+                break;
+            }
+            seen = seen + 1;
             bump(x, 1.5 * w.get(c.name, 1.0), "Matches your interest in " + c.name, "interest");
+            if x.key in scores {
+                remember_cat(x.key, c.name);
+            }
         }
     }
     for o in follows {
         if is_platform(o.name) {
             continue;    # a ticketing/listing platform is not a host you follow
         }
+        if len(scores) >= MAX_BRIEF_CANDIDATES {
+            break;
+        }
         for x in [o <-:OrganizedBy:<-][?:PulseNode] {
+            if len(scores) >= MAX_BRIEF_CANDIDATES {
+                break;
+            }
             bump(x, 2.0, "From " + o.name + ", which you follow", "follows");
         }
     }
     for (k, n) in nodes.items() {
-        for c in _cats_of(n) {
+        # Use cats collected during interest scoring — _cats_of per node was another full edge walk.
+        for c in (known_cats[k] if k in known_cats else []) {
             before = scores[k];
             scores[k] = scores[k] * w.get(c, 1.0);
             if scores[k] != before {
@@ -1531,13 +1579,13 @@ impl GenerateBrief.rank {
         }
     }
     ranked_all = sorted(list(scores.keys()), key=lambda (k: str) -> float { return scores[k]; }, reverse=True);
-    # One item per listing: the same title at the same venue (a duplicate from
-    # another source, or another night of the same show) keeps only its best score.
+    # One item per listing: the same title at the same place (address on the node —
+    # skip HostedAt venue walks over every candidate).
     ranked: list[str] = [];
     seen_listing: list[str] = [];
     for k in ranked_all {
-        ven = _venue_of(nodes[k]);
-        lk = nodes[k].kind + "|" + norm_title(nodes[k].name) + "|" + (ven.key if ven else "");
+        place_lbl: str = nodes[k].address if nodes[k].address else "";
+        lk = nodes[k].kind + "|" + norm_title(nodes[k].name) + "|" + place_lbl;
         if lk in seen_listing {
             continue;
         }
@@ -1550,7 +1598,10 @@ impl GenerateBrief.rank {
     items: list[BriefItem] = [];
     for k in ranked[:5] {
         n = nodes[k];
-        cats = _cats_of(n);
+        cats: list[str] = known_cats[k] if k in known_cats else [];
+        if len(cats) == 0 {
+            cats = _cats_of(n);
+        }
         items.append(BriefItem(
             id=jid(n), key=n.key, name=n.name, kind=n.kind, when=friendly_when(n.when),
             why=". ".join(reasons[k][:2]) + ".",

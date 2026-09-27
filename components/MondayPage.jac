@@ -6,10 +6,13 @@ import from "@hugeicons/core-free-icons" { SparklesIcon, ArrowUpRight01Icon, Thu
 import from .ui.button { Button }
 import from .ui.skeleton { Skeleton }
 import from .ui.select { Select, SelectTrigger, SelectValue, SelectContent, SelectItem }
-import from .FilterBar { FilterBar }
 import from .pulse_theme { kind_color, kind_label, campus_lat, campus_lng }
 import from .profile_store { my_persona, load_profile, commute_verb }
-import from .net { with_timeout }
+import from .net {
+    with_timeout,
+    brief_ai_timeout_ms,
+    brief_quick_timeout_ms
+}
 import from .BriefDebugPanel { BriefDebugPanel }
 sv import from ..services.pulse { GenerateBrief, Feedback, Brief, BriefItem, list_personas, speak_brief, list_voices }
 
@@ -91,9 +94,7 @@ def initial_tab() -> str {
     return "student";
 }
 
-def:pub MondayPage(
-    filters: dict, onFilters: Callable[[dict], None], dark: bool = True
-) -> JsxElement {
+def:pub MondayPage(dark: bool = True) -> JsxElement {
     has persona: str = initial_tab(),
         brief: Brief | None = None,
         loading: bool = False,
@@ -145,30 +146,27 @@ def:pub MondayPage(
         return home + ", " + commute_verb(mode);
     }
 
-    def include_posted() -> bool {
-        return filters["community"] != False;
-    }
-
     async def run_brief(who: str, ai: bool) -> any {
         res = root spawn GenerateBrief(
             persona=who,
             use_ai=ai,
-            categories=filters["categories"] or [],
-            kinds=filters["kinds"] or [],
-            price=filters["price"] or "any",
-            time=filters["time"] or "week",
-            date=filters["date"] or "",
-            community=include_posted(),
+            categories=[],
+            kinds=[],
+            price="any",
+            time="week",
+            date="",
+            community=True,
             community_only=False,
-            distance=filters["distance"] or 0.0,
+            distance=0.0,
             clat=campus_lat(),
             clng=campus_lng()
         );
         return res;
     }
 
-    # Brief with deadlines: the full (AI) brief gets 8 s, then the instant template
-    # brief gets 8 s, then a plain error with Retry. The skeleton shows meanwhile.
+    # One walker call (GitHub used AI→template client fallback). The server already
+    # falls back to the template when the LLM is slow, so a second client spawn only
+    # piles up SQLite work on a large live graph.
     async def generate -> None {
         loading = True;
         error = "";
@@ -181,16 +179,11 @@ def:pub MondayPage(
             brief = None;    # switching people: show the skeleton, not the last person's brief
         }
         got: any = None;
-        quick: bool = False;
         try {
             if persona == "custom" {
                 await load_profile();
             }
-            got = await with_timeout(run_brief(who, True), None);
-            if got is None and w.__pulseBriefReq == req {
-                quick = True;
-                got = await with_timeout(run_brief(who, False), None);
-            }
+            got = await with_timeout(run_brief(who, True), None, brief_ai_timeout_ms());
         } except Exception {
             got = None;
         }
@@ -202,8 +195,8 @@ def:pub MondayPage(
         } else {
             brief = got.reports[0] if got.reports and len(got.reports) > 0 else None;
             votes = {};
-            if quick {
-                note = "The full brief was taking too long, so this is the quick version. Regenerate to try again.";
+            if brief is not None and not brief.ai {
+                note = "Used the quick brief (the full write-up was slow). Regenerate to try again.";
             }
         }
         loading = False;
@@ -241,7 +234,7 @@ def:pub MondayPage(
         }
     }
 
-    can with (persona, filters) entry {
+    can with [persona] entry {
         stop_audio();
         generate();
     }
@@ -389,13 +382,12 @@ def:pub MondayPage(
         a.play();
     }
 
-    return <div className="flex flex-1 flex-col bg-background text-foreground lg:flex-row">
-        <div className="mx-auto flex w-full max-w-6xl flex-1 flex-col gap-8 pt-8 pb-12 pl-4 pr-4 sm:pl-6 sm:pr-6 animate-in fade-in slide-in-from-bottom-2 duration-500 lg:max-w-none">
+    return <div className="mx-auto flex w-full max-w-6xl flex-1 flex-col gap-8 bg-background pt-8 pb-12 pl-4 pr-4 text-foreground sm:pl-6 sm:pr-6 animate-in fade-in slide-in-from-bottom-2 duration-500">
         {#* headline *#}
         <div className="grid gap-6 lg:grid-cols-[1.4fr_1fr] lg:items-end">
             <div className="flex flex-col gap-1.5">
                 <h2 className="text-2xl font-semibold tracking-tight">{"My Monday"}</h2>
-                <p className="max-w-lg text-sm text-muted-foreground">{"The five things that touch your week — same filters as Network and Map."}</p>
+                <p className="max-w-lg text-sm text-muted-foreground">{"The five things that touch your week — scored from your home, commute, interests, and who you follow."}</p>
             </div>
             <div className="flex flex-col gap-2">
                 <div className="flex items-center justify-end gap-3">
@@ -583,15 +575,5 @@ def:pub MondayPage(
             <Button variant="outline" size="sm" onClick={lambda (e: MouseEvent) { widen_brief(); }}>{widen_label()}</Button>
         </div>}
         <BriefDebugPanel persona={target_persona(persona)} />
-        </div>
-        <aside className="flex w-full flex-col gap-4 border-t border-border bg-background pt-6 pb-6 pl-6 pr-6 lg:w-[360px] lg:shrink-0 lg:border-l lg:border-t-0 lg:pt-8">
-            <div className="flex flex-col gap-1">
-                <h3 className="text-sm font-semibold text-foreground">{"Shared filters"}</h3>
-                <p className="text-xs text-muted-foreground">
-                    {"Same chips as Network and Map — narrow the brief when the graph is crowded."}
-                </p>
-            </div>
-            <FilterBar filters={filters} onChange={onFilters} showDistance={True} dark={dark}/>
-        </aside>
     </div>;
 }

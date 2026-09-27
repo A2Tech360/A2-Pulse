@@ -1,5 +1,5 @@
-"""Masthead + tab nav. Owns shared filters, app-wide dark/light theme and the
-live calendar sync that runs once when the app opens."""
+"""Masthead + tab nav. Owns shared filters and app-wide dark/light theme.
+Live calendar sync is manual (Network → Sync live events)."""
 
 import from "@jac/runtime" { Routes, Route, Navigate, Link, useLocation, useNavigate }
 import from "@hugeicons/react" { HugeiconsIcon }
@@ -15,16 +15,12 @@ import from .MapPage { MapPage }
 import from .MondayPage { MondayPage }
 import from .WelcomePage { WelcomePage }
 import from .profile_store { load_profile }
-sv import from ..services.event_ingest { sync_online_events, SyncReport }
 
 glob NAV_ITEMS: list[dict] = [
     {"label": "My Monday", "to": "/monday"},
     {"label": "Map", "to": "/map"},
     {"label": "Network", "to": "/network"}
 ];
-
-# Guards the open-time sync against remounts (and React's dev double-invoke).
-glob APP_SYNC_STARTED: bool = False;
 
 glob SKIP_KEY: str = "a2pulse.skipOnboarding";
 glob TAGLINE: str = "Ann Arbor's living local graph";
@@ -80,9 +76,7 @@ glob MONTHS: list[str] = ["January", "February", "March", "April", "May", "June"
 def:pub AppShell() -> JsxElement {
     has filters: dict = default_filters(),
         dark: bool = read_dark_pref(True),
-        syncing: bool = False,
-        syncNote: str = "",
-        # Bumped when a sync adds or changes events, so pages reload their data.
+        # Bumped after a manual Network sync so Map/Network reload fresh data.
         syncVersion: int = 0;
 
     path = useLocation().pathname;
@@ -99,7 +93,6 @@ def:pub AppShell() -> JsxElement {
     async can with entry {
         apply_app_theme(dark);
         ensure_favicon();
-        sync_on_open();
         # New visitors start with onboarding (once per page load).
         start_path: str = path;
         prof: dict = await load_profile();
@@ -113,27 +106,8 @@ def:pub AppShell() -> JsxElement {
         write_dark_pref(dark);
     }
 
-    async def sync_on_open {
-        # Non-forced: the server skips it if calendars synced in the last few minutes.
-        if APP_SYNC_STARTED {
-            return;
-        }
-        APP_SYNC_STARTED = True;
-        syncing = True;
-        try {
-            rep: SyncReport = await sync_online_events(False);
-            if rep.created + rep.updated > 0 {
-                syncVersion = syncVersion + 1;
-                syncNote = (
-                    f"{rep.created} new events" if rep.created > 0 else "Calendars up to date"
-                );
-            } elif not rep.ok {
-                syncNote = "Calendar sync failed";
-            }
-        } except Exception {
-            syncNote = "Calendar sync failed";
-        }
-        syncing = False;
+    def bump_sync_version {
+        syncVersion = syncVersion + 1;
     }
 
     def set_filters(nxt: dict) {
@@ -148,25 +122,29 @@ def:pub AppShell() -> JsxElement {
     return
         <div className="flex min-h-svh flex-col overflow-x-hidden bg-background text-foreground">
             <header className="sticky top-0 z-30 border-b border-border bg-background/80 backdrop-blur">
-                <div className="mx-auto flex h-14 w-full max-w-7xl items-center justify-between gap-4 pl-4 pr-4 sm:pl-6 sm:pr-6">
-                    <Link to="/monday" className="flex min-w-0 items-center gap-2 text-foreground" aria-label={"A2 Pulse, " + TAGLINE}>
+                <div className="mx-auto grid h-14 w-full max-w-7xl grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-3 pl-4 pr-4 sm:pl-6 sm:pr-6">
+                    <Link
+                        to="/monday"
+                        className="flex min-w-0 items-center gap-2 justify-self-start text-foreground"
+                        aria-label={"A2 Pulse, " + TAGLINE}
+                    >
                         <span className="size-2.5 shrink-0 rounded-full bg-foreground" />
                         <span className="flex min-w-0 flex-col leading-tight">
-                            <span className="text-base font-semibold tracking-tight">
+                            <span className="truncate text-base font-semibold tracking-tight">
                                 {"A2 Pulse"}
                             </span>
-                            <span className="hidden truncate text-[11px] text-muted-foreground sm:block">
+                            <span className="hidden truncate text-[10px] text-muted-foreground sm:inline">
                                 {TAGLINE}
                             </span>
                         </span>
                     </Link>
-                    <nav className="flex items-center gap-1 rounded-lg bg-muted pt-1 pb-1 pl-1 pr-1">
+                    <nav className="flex items-center gap-1 justify-self-center rounded-full bg-muted p-1">
                         {for item in NAV_ITEMS {
                             <Link
                                 key={item["to"]}
                                 to={item["to"]}
                                 className={
-                                    "rounded-md pt-1 pb-1 pl-3 pr-3 text-sm font-medium transition-colors "
+                                    "rounded-full px-3 py-1.5 text-sm font-medium transition-colors "
                                     + (
                                         "bg-background text-foreground shadow-sm"
                                         if path.startswith(item["to"])
@@ -178,20 +156,14 @@ def:pub AppShell() -> JsxElement {
                             </Link>
                         }}
                     </nav>
-                    <div className="flex items-center gap-3">
-                        {(syncing or syncNote) and <span
-                            className="hidden text-xs text-muted-foreground sm:inline"
-                            aria-live="polite"
-                        >
-                            {("Syncing calendars…" if syncing else syncNote)}
-                        </span>}
-                        <span className="hidden text-xs text-muted-foreground md:inline">
+                    <div className="flex min-w-0 items-center justify-end gap-2 justify-self-end sm:gap-3">
+                        <span className="hidden truncate text-xs text-muted-foreground xl:inline">
                             {dateline}
                         </span>
                         <button
                             type="button"
                             onClick={lambda (e: MouseEvent) { toggle_theme(); }}
-                            className="inline-flex items-center gap-1.5 rounded-full border border-border bg-card px-2.5 py-1.5 text-xs font-medium text-foreground shadow-sm transition-colors hover:bg-muted"
+                            className="inline-flex shrink-0 items-center gap-1.5 rounded-full border border-border bg-card px-2.5 py-1.5 text-xs font-medium text-foreground shadow-sm transition-colors hover:bg-muted"
                             aria-label="Toggle color theme"
                         >
                             <HugeiconsIcon
@@ -199,7 +171,7 @@ def:pub AppShell() -> JsxElement {
                                 strokeWidth={2}
                                 className="size-3.5"
                             />
-                            <span>{("Dark" if dark else "Light")}</span>
+                            <span className="hidden sm:inline">{("Dark" if dark else "Light")}</span>
                         </button>
                     </div>
                 </div>
@@ -218,6 +190,7 @@ def:pub AppShell() -> JsxElement {
                                 onFilters={set_filters}
                                 dark={dark}
                                 syncVersion={syncVersion}
+                                onSynced={bump_sync_version}
                             />
                         }
                     />
@@ -234,13 +207,7 @@ def:pub AppShell() -> JsxElement {
                     />
                     <Route
                         path="/monday"
-                        element={
-                            <MondayPage
-                                filters={filters}
-                                onFilters={set_filters}
-                                dark={dark}
-                            />
-                        }
+                        element={<MondayPage dark={dark} />}
                     />
                     <Route path="/welcome" element={<WelcomePage dark={dark} />} />
                     <Route

@@ -98,6 +98,9 @@ def _load_dotenv {
                 v = v.strip().strip('"').strip("'");
                 if k and k not in os.environ {
                     os.environ[k] = v;
+                } elif k and not str(os.environ.get(k, "")).strip() and v {
+                    # Empty shell exports (LLM_MODEL=) must not block .env values.
+                    os.environ[k] = v;
                 }
             }
         } except Exception {
@@ -157,20 +160,53 @@ def _resolve_status -> dict[str, any] {
     return {"on": False, "model": model, "provider": provider, "reason": " or ".join(keys) + " is not set"};
 }
 
+"""Pick the concrete API key for BriefModel. Prefer LLM_API_KEY, then the
+provider's named env vars. Never pass an empty api_key — that can block
+LiteLLM from reading GEMINI_API_KEY / GOOGLE_API_KEY."""
+def _resolve_api_key(provider: str) -> str {
+    generic = os.environ.get("LLM_API_KEY", "").strip();
+    if generic {
+        return generic;
+    }
+    for k in PROVIDER_KEYS.get(provider, []) {
+        v = os.environ.get(k, "").strip();
+        if len(v) > 8 {
+            return v;
+        }
+    }
+    return "";
+}
+
 def _configure {
     _load_dotenv();
+    # Jac byLLM / LiteLLM auth Gemini via GOOGLE_API_KEY; we accept GEMINI_API_KEY too.
+    gem = os.environ.get("GEMINI_API_KEY", "").strip();
+    goog = os.environ.get("GOOGLE_API_KEY", "").strip();
+    if gem and not goog {
+        os.environ["GOOGLE_API_KEY"] = gem;
+    } elif goog and not gem {
+        os.environ["GEMINI_API_KEY"] = goog;
+    }
     _llm_status = _resolve_status();
     brief_llm = None;
     if _llm_status["on"] {
-        generic = os.environ.get("LLM_API_KEY", "").strip();
         base = os.environ.get("LLM_API_BASE", "").strip();
         effort = reasoning_effort_for(str(_llm_status["provider"]));
         _llm_status["reasoning_effort"] = effort;
-        brief_llm = BriefModel(
-            model_name=_llm_status["model"], api_key=generic,
-            config=({"base_url": base} if base else {}),
-            extra_params=({"reasoning_effort": effort} if effort else {})
-        );
+        key = _resolve_api_key(str(_llm_status.get("provider", "")));
+        cfg: dict = ({"base_url": base} if base else {});
+        extra: dict = ({"reasoning_effort": effort} if effort else {});
+        if key {
+            brief_llm = BriefModel(
+                model_name=_llm_status["model"], api_key=key,
+                config=cfg, extra_params=extra
+            );
+        } else {
+            brief_llm = BriefModel(
+                model_name=_llm_status["model"],
+                config=cfg, extra_params=extra
+            );
+        }
         try {
             import litellm;
             # Bound the provider request itself too, so timed-out worker threads die soon after the deadline.
