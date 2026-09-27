@@ -10,6 +10,7 @@ model is set. Exit code 1 when any profile fails a check.
 # First: normalize an empty or "off" LLM_MODEL before any module with `by llm` loads.
 import services.llm_env;
 import os;
+import time;
 import re;
 import io;
 import sys;
@@ -323,7 +324,18 @@ with entry {
     }
     today = brief_day_index(datetime.now());
     profiles: list[dict[str, any]] = SEEDED + SYNTHETIC;
-    results = [evaluate(str(p["persona"]), str(p["why"]), today) for p in profiles];
+    # --pace SECONDS waits between profiles, for providers with per-minute quotas.
+    pace = 0.0;
+    if "--pace" in sys.argv and sys.argv.index("--pace") + 1 < len(sys.argv) {
+        pace = float(sys.argv[sys.argv.index("--pace") + 1]);
+    }
+    results: list[dict[str, any]] = [];
+    for (i, p) in enumerate(profiles) {
+        if pace > 0.0 and i > 0 {
+            time.sleep(pace);
+        }
+        results.append(evaluate(str(p["persona"]), str(p["why"]), today));
+    }
     for r in results {
         failed = [c["name"] for c in r["checks"] if not c["ok"]];
         warn = f" ({len(r['warnings'])} warning(s))" if r["warnings"] else "";
