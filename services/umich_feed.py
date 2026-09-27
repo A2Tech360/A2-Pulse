@@ -161,8 +161,13 @@ def _venue_label(venue):
 
 
 def _parse_price(cost):
-    m = re.search(r"\d+(?:\.\d+)?", str(cost or ""))
-    return float(m.group()) if m else 0.0
+    """Stated price only: "Free" -> 0.0, "$10" -> 10.0, nothing -> -1.0 (unknown).
+    Unknown used to be 0.0, which the brief read out as "Free"."""
+    text = str(cost or "")
+    if re.search(r"\bfree\b", text, re.IGNORECASE):
+        return 0.0
+    m = re.search(r"\d+(?:\.\d+)?", text)
+    return float(m.group()) if m else -1.0
 
 
 def _categories(e):
