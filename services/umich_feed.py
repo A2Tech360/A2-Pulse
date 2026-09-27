@@ -95,6 +95,9 @@ class _Geocoder:
         self.cache = _load_geocache()
         self.lookups = 0
         self.dirty = False
+        # Set after a failed lookup (usually Nominatim's 429 rate limit); the rest of
+        # this run skips geocoding and the next sync picks up where this one stopped.
+        self.stopped = False
 
     def resolve(self, building):
         name = building.strip().lower()
@@ -105,7 +108,7 @@ class _Geocoder:
         if name in self.cache:
             hit = self.cache[name]
             return tuple(hit) if hit else None
-        if self.lookups >= MAX_NEW_LOOKUPS:
+        if self.lookups >= MAX_NEW_LOOKUPS or self.stopped:
             return None
         hit = None
         if re.search(r"\d|ann arbor|ypsilanti", name):
@@ -122,7 +125,9 @@ class _Geocoder:
             try:
                 hit = _nominatim(q)
             except Exception as ex:
-                print(f"[umich_feed] geocode failed for {building!r}: {ex}")
+                print(f"[umich_feed] geocode failed for {building!r}: {ex}; "
+                      "skipping remaining lookups until the next sync")
+                self.stopped = True
                 return None  # don't cache transient failures
             if hit:
                 break
