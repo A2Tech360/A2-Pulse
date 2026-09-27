@@ -18,10 +18,12 @@ glob LLM_MIN_WORDS: int = 60;
 glob ORDINALS: list[str] = ["First", "Second", "Third", "Fourth", "Fifth"];
 glob WHY_LEADS: list[str] = ["Why it matters:", "Why it's here:", "Why you'd care:", "The reason:", "Why it made the list:"];
 
-def llm_write_brief(profile: str, items: str, today: str) -> str by pulse_llm.brief_llm(temperature=0.4, max_tokens=400);
+def llm_write_brief(profile: str, items: str, today: str) -> str by pulse_llm.brief_llm(temperature=0.3, max_tokens=300);
 sem llm_write_brief = """You are the Editor for A2 Pulse, writing a Monday morning audio brief for one Ann Arbor resident. A text-to-speech voice reads it aloud, so write for the ear, not the eye.
-Length: 140 to 160 words, about one minute spoken.
-Cover every numbered item, in the given order. For each one say what it is and when, why it matters to this person, and the one thing to do about it. Always keep the day and time of closures, detours and deadlines. Reasons are listed strongest first; lead with the first one.
+Length: 125 to 145 words, never more than 150. Budget about 25 words per item plus a one-line greeting and a short sign-off, and count before you answer.
+Cover every numbered item, in the given order; a brief that leaves out any item is wrong. For each one say what it is and when, why it matters to this person, and the one thing to do about it. Reasons are listed strongest first; lead with the first one.
+Stick to the facts in the items: keep each item's name as given, and never add or reinterpret details (no guesses about what a title means, who performs, prices, places or times that are not in the item).
+Say days by name (Monday, Tuesday), even for an item on the same day as today's date. Never say today, tonight, tomorrow, this morning or this evening: the listener may hear this on another day. Keep every day and time range complete, such as Wednesday to Friday, 7 a.m. to 5 p.m.
 Tone: friendly and direct, like a neighbor who did the homework. Short sentences. Call the listener you. Open with a one-line greeting using their first name and close with a short sign-off.
 Spoken-text rules, all mandatory:
 - No abbreviations. Write Road, Street, Avenue, Boulevard, Drive, Highway, Parkway; North, South, East, West; University of Michigan, not U-M; Monday, not Mon; Saint or Doctor where that is what St. or Dr. means.
@@ -31,7 +33,7 @@ Spoken-text rules, all mandatory:
 - Plain sentences only.""";
 sem llm_write_brief.profile = "Who the brief is for: name, home area, commute mode and interests.";
 sem llm_write_brief.items = "The ranked items, one per line, each with when, why it matters (strongest reason first) and what to do.";
-sem llm_write_brief.today = "Today's date, for relative phrasing like tomorrow or this weekend.";
+sem llm_write_brief.today = "Today's date, for context only. Do not turn it into relative words like today or tomorrow.";
 
 def _lower_first(s: str) -> str {
     return s[:1].lower() + s[1:] if s else s;
