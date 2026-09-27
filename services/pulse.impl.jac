@@ -513,7 +513,7 @@ impl GenerateBrief.rank {
         if why not in reasons[k] { reasons[k].append(why); }
     }
 
-    for p in homes + route {
+    for p in homes + [r for r in route if r not in homes] {    # home counts once, not also as route
         is_home = p in homes;
         for x in [p <-:AffectsRoute:<-][?:PulseNode] {
             if x.kind == "alert" {
