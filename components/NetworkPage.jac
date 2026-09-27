@@ -2380,9 +2380,44 @@ def:pub NetworkPage(
         };
     }
 
+    async def warm_photos(nid: str, pc: any) {
+        try {
+            m: DossierMedia = await dossier_images(nid);
+            if m and m.images and len(m.images) > 0 {
+                pc[nid] = m.images;
+            }
+        } except Exception {
+            _ = None;
+        }
+    }
+
+    def warm_node(nid: str) {
+        # Hover intent: start the dossier + photo fetch before the click lands.
+        fetch_and_cache_dossier(nid);
+        w: any = window;
+        pc: any = w.__pulsePhotoCache;
+        if not pc {
+            pc = {};
+            w.__pulsePhotoCache = pc;
+        }
+        warm: any = w.__pulsePhotoWarm;
+        if not warm {
+            warm = {};
+            w.__pulsePhotoWarm = warm;
+        }
+        if nid in pc or nid in warm {
+            return;
+        }
+        warm[nid] = True;
+        warm_photos(nid, pc);
+    }
+
     def bind_node_enter(nid: str) -> Callable[[MouseEvent], None] {
         captured: str = nid;
-        return lambda (e: MouseEvent) { hoverId = captured; };
+        return lambda (e: MouseEvent) {
+            hoverId = captured;
+            warm_node(captured);
+        };
     }
 
     def bind_node_leave -> Callable[[MouseEvent], None] {
@@ -2493,11 +2528,11 @@ def:pub NetworkPage(
     focus = hoverId or selectedId;
 
     return
-        <div className="relative flex flex-1 flex-col lg:flex-row">
+        <div className="relative flex flex-1 flex-col lg:h-[calc(100svh-57px)] lg:flex-row lg:overflow-hidden">
             {#* ---------------- graph canvas ---------------- *#}
             <div
                 ref={canvasRef}
-                className="relative min-h-[70svh] flex-1 overflow-hidden paper-grain lg:min-h-[calc(100svh-230px)]"
+                className="relative min-h-[70svh] flex-1 overflow-hidden paper-grain lg:h-auto lg:min-h-0 lg:self-stretch"
             >
                 {loading
                     and len(nodes) == 0
@@ -3000,7 +3035,7 @@ def:pub NetworkPage(
             {#* ---------------- side column: here + detail tabs ---------------- *#}
             <aside
                 data-scroll-panel="1"
-                className="relative z-20 flex w-full flex-col gap-5 overflow-y-auto overscroll-contain border-t bg-background pt-6 pb-6 pl-6 pr-6 lg:max-h-[calc(100svh-230px)] lg:w-[360px] lg:border-l lg:border-t-0"
+                className="relative z-20 flex w-full flex-col gap-5 overflow-y-auto overscroll-contain border-t bg-background pt-6 pb-6 pl-6 pr-6 lg:h-[calc(100svh-57px)] lg:w-[360px] lg:shrink-0 lg:self-stretch lg:border-l lg:border-t-0"
             >
                 {selectedId != ""
                     and <div

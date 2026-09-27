@@ -2771,7 +2771,23 @@ def _collect_images_for_queries(queries: list[str]) -> list[DossierImage] {
     return _dedupe_images(hits, 4);
 }
 
+glob _IMG_CACHE: dict[str, list] = {};
+glob _IMG_TTL_S: float = 21600.0;
+
 impl dossier_images(node_id: str) -> DossierMedia {
+    # The curated set is expensive (LLM + image search) but stable: serve repeats from memory.
+    hit = _IMG_CACHE.get(node_id);
+    if hit and (time.time() - hit[0]) < _IMG_TTL_S {
+        return hit[1];
+    }
+    media = _dossier_images_uncached(node_id);
+    if len(media.images) > 0 {
+        _IMG_CACHE[node_id] = [time.time(), media];
+    }
+    return media;
+}
+
+def _dossier_images_uncached(node_id: str) -> DossierMedia {
     _ensure_seed();
     n = _find_key(node_id);
     if n is None {

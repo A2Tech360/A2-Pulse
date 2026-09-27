@@ -352,9 +352,9 @@ def:pub MapPage(
     }
 
     return
-        <div className="flex flex-1 flex-col bg-background text-foreground lg:flex-row">
+        <div className="flex flex-1 flex-col bg-background text-foreground lg:h-[calc(100svh-57px)] lg:flex-row lg:overflow-hidden">
             <div
-                className="relative min-h-[60svh] flex-1 bg-muted lg:min-h-[calc(100svh-120px)]"
+                className="relative min-h-[60svh] flex-1 bg-muted lg:h-auto lg:min-h-0 lg:self-stretch"
             >
                 <div ref={mapEl} className="absolute inset-0"/>
                 {keyChecked and not apiKey and <MapKeyMissing/>}
@@ -376,7 +376,7 @@ def:pub MapPage(
                     </div>}
             </div>
             <aside
-                className="flex w-full flex-col gap-6 border-t border-border bg-background pt-6 pb-6 pl-6 pr-6 lg:w-[380px] lg:border-l lg:border-t-0"
+                className="flex w-full flex-col gap-6 overflow-y-auto overscroll-contain border-t border-border bg-background pt-6 pb-6 pl-6 pr-6 lg:h-[calc(100svh-57px)] lg:w-[380px] lg:shrink-0 lg:self-stretch lg:border-l lg:border-t-0"
             >
                 <FilterBar filters={filters} onChange={onFilters} dark={dark}/>
                 <div className="flex flex-col gap-2 border-t border-border pt-5">
