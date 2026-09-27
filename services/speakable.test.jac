@@ -16,8 +16,8 @@ def sp(text: str) -> str {
 
 def assert_clean(text: str) {
     out = sp(text);
-    hit = re.search(FORBIDDEN, out);
-    assert hit is None, f"{text!r} -> {out!r} still has {hit.group(0) if hit else ''!r}";
+    found = re.findall(FORBIDDEN, out);
+    assert len(found) == 0, f"{text!r} -> {out!r} still has {found!r}";
 }
 
 # ---------------------------------------------------------------- road names in the seed data

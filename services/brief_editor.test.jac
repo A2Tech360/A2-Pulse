@@ -34,10 +34,10 @@ test "llm output goes through speakable" {
     assert out["raw_llm"] == RAW_LLM;
     assert out["spoken"] == speakable(RAW_LLM, TODAY);
     assert re.search(FORBIDDEN, out["spoken"]) is None, out["spoken"];
-    assert "Plymouth Road" in out["spoken"];
-    assert "Saturday at 7 p.m." in out["spoken"];
-    assert "University of Michigan" in out["spoken"];
-    assert "1. Plymouth Rd lane closure" in out["input"]["items"];
+    assert "Plymouth Road" in str(out["spoken"]);
+    assert "Saturday at 7 p.m." in str(out["spoken"]);
+    assert "University of Michigan" in str(out["spoken"]);
+    assert "1. Plymouth Rd lane closure" in str(out["input"]["items"]);
 }
 
 test "llm error falls back to the template" {
@@ -45,7 +45,7 @@ test "llm error falls back to the template" {
     out = edit_brief("Jordan", "Jordan", ITEMS, True, TODAY);
     pulse_llm.set_llm(None);
     assert out["mode"] == "template";
-    assert "provider down" in out["error"];
+    assert "provider down" in str(out["error"]);
     assert out["raw_llm"] is None;
     assert out["spoken"].startswith("Good morning Jordan.");
 }
@@ -55,7 +55,7 @@ test "too-short llm output falls back to the template" {
     out = edit_brief("Jordan", "Jordan", ITEMS, True, TODAY);
     pulse_llm.set_llm(None);
     assert out["mode"] == "template";
-    assert "too short" in out["error"];
+    assert "too short" in str(out["error"]);
     assert out["raw_llm"] == "Have a good week.";
 }
 
