@@ -18,7 +18,7 @@ import from pathlib { Path }
 import threading;
 # Must come before any byLLM import: empty/off LLM_MODEL would otherwise crash it.
 import from services.llm_env { llm_model_off }
-import from jaclang.byllm.lib { Model }
+import from jaclang.byllm.lib { Model, MTRuntime }
 
 glob LLM_TIMEOUT_S: float = 8.0;
 
@@ -47,6 +47,34 @@ glob BARE_FAMILIES: list[list[str]] = [
     ["gpt-", "openai"], ["o1", "openai"], ["o3", "openai"], ["o4", "openai"],
     ["chatgpt", "openai"], ["claude", "anthropic"], ["gemini-", "gemini"]
 ];
+
+"""byLLM's Model plus request options it does not pass through on its own,
+such as reasoning_effort (LiteLLM maps it to each provider's thinking setting)."""
+obj BriefModel(Model) {
+    has extra_params: dict[str, any] = {};
+
+    override def make_model_params(mt_run: MTRuntime) -> dict {
+        params: dict = super.make_model_params(mt_run);
+        for (k, v) in self.extra_params.items() {
+            params[k] = v;
+        }
+        return params;
+    }
+}
+
+"""Reasoning level to request. LLM_REASONING_EFFORT wins (off or default = send
+nothing); otherwise Gemini gets "minimal", the lowest LiteLLM can express, and
+other providers get nothing."""
+def reasoning_effort_for(provider: str) -> str {
+    v = os.environ.get("LLM_REASONING_EFFORT", "").strip().lower();
+    if v in ["off", "default"] {
+        return "";
+    }
+    if v {
+        return v;
+    }
+    return "minimal" if provider in ["gemini", "vertex_ai"] else "";
+}
 
 glob _llm_status: dict[str, any] = {},
      brief_llm: any = None;
@@ -136,7 +164,13 @@ def _configure {
     if _llm_status["on"] {
         generic = os.environ.get("LLM_API_KEY", "").strip();
         base = os.environ.get("LLM_API_BASE", "").strip();
-        brief_llm = Model(model_name=_llm_status["model"], api_key=generic, config=({"base_url": base} if base else {}));
+        effort = reasoning_effort_for(str(_llm_status["provider"]));
+        _llm_status["reasoning_effort"] = effort;
+        brief_llm = BriefModel(
+            model_name=_llm_status["model"], api_key=generic,
+            config=({"base_url": base} if base else {}),
+            extra_params=({"reasoning_effort": effort} if effort else {})
+        );
         try {
             import litellm;
             # Bound the provider request itself too, so timed-out worker threads die soon after the deadline.
@@ -145,7 +179,8 @@ def _configure {
         } except Exception {
         }
         via = " via LLM_API_BASE" if os.environ.get("LLM_API_BASE", "").strip() else "";
-        print(f"LLM: {_llm_status['model']} ({_llm_status['provider']}){via}, {int(LLM_TIMEOUT_S)}s timeout");
+        think = f", reasoning {effort}" if effort else "";
+        print(f"LLM: {_llm_status['model']} ({_llm_status['provider']}){via}{think}, {int(LLM_TIMEOUT_S)}s timeout");
     } else {
         print(f"LLM: off, using fallbacks ({_llm_status['reason']})");
     }
@@ -252,6 +287,7 @@ def diagnose(probe: bool = True) -> dict[str, any] {
         "gateway_base_url_set": bool(os.environ.get("LLM_API_BASE", "").strip()),
         "ambient_by_llm_model": ambient,
         "keys_present": {k: bool(os.environ.get(k, "").strip()) for k in _key_env_names()},
+        "reasoning_effort": str(st.get("reasoning_effort", "")),
         "timeout_s": LLM_TIMEOUT_S,
         "test": {"ran": False}
     };

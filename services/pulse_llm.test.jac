@@ -68,3 +68,20 @@ test "empty or off LLM_MODEL means the LLM is off, even with a key" {
     os.environ.pop("LLM_API_KEY", None);
     if saved is None { os.environ.pop("LLM_MODEL", None); } else { os.environ["LLM_MODEL"] = saved; }
 }
+
+test "Gemini gets the lowest reasoning level; others get none unless set" {
+    saved = os.environ.pop("LLM_REASONING_EFFORT", None);
+    assert reasoning_effort_for("gemini") == "minimal";
+    assert reasoning_effort_for("vertex_ai") == "minimal";
+    assert reasoning_effort_for("openai") == "";
+    os.environ["LLM_REASONING_EFFORT"] = "low";
+    assert reasoning_effort_for("openai") == "low";
+    os.environ["LLM_REASONING_EFFORT"] = "off";
+    assert reasoning_effort_for("gemini") == "";
+    if saved is None { os.environ.pop("LLM_REASONING_EFFORT", None); } else { os.environ["LLM_REASONING_EFFORT"] = saved; }
+}
+
+test "BriefModel adds its extra params to every request" {
+    m = BriefModel(model_name="mockllm", config={"outputs": ["ok"]}, extra_params={"reasoning_effort": "minimal"});
+    assert m.extra_params == {"reasoning_effort": "minimal"};
+}
