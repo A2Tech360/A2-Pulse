@@ -39,6 +39,10 @@ track), University of Michigan, Sept 26–27, 2026.
   public calendars into the graph. The server skips repeat syncs within a few
   minutes and never runs two at once. Sync is **not** automatic on every page open.
 
+### Special feature: Post your own events
+
+Anyone can add a neighbor-made event from the **Network** page. Your post becomes a real event node on the shared graph — tagged by topic, filterable with everything else, and visible on the Map and in briefs when community posts are included — so local happenings don’t have to wait for a calendar scraper.
+
 ---
 
 ## How the brief works
