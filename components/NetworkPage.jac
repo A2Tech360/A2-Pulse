@@ -64,7 +64,6 @@ glob LENS_ONLY: list[str] = [
          "lens-who",
          "lens-city"
      ];
-glob NET_AUTO_SYNCED: bool = False;
 
 def node_radius(depth: int, kind: str) -> float {
     if kind == "lens" and depth == 0 {
@@ -367,7 +366,10 @@ def:pub DossierPanel(
 }
 
 def:pub NetworkPage(
-    filters: dict[str, any], onFilters: Callable[[dict[str, any]], None], dark: bool = True
+    filters: dict[str, any],
+    onFilters: Callable[[dict[str, any]], None],
+    dark: bool = True,
+    syncVersion: int = 0
 ) -> JsxElement {
     has focusKey: str = "root",
         focusName: str = "Ann Arbor",
@@ -892,11 +894,13 @@ def:pub NetworkPage(
     }
 
     async can with entry {
-        # Load the canvas first — live sync blocks the server while it runs.
         await load_overview();
-        if not NET_AUTO_SYNCED {
-            NET_AUTO_SYNCED = True;
-            run_online_sync(False);
+    }
+
+    # AppShell syncs calendars when the app opens; redraw once it brings new data.
+    can with [syncVersion] entry {
+        if syncVersion > 0 and not syncing {
+            reload_active_tab();
         }
     }
 

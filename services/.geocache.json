@@ -1,6 +1,13 @@
 {
+ "10th floor": null,
  "10th floor weiser hall": null,
+ "1100 north university building": [
+  42.2774345,
+  -83.7354407,
+  "1100 North University Building, 1100, North University Avenue, Ann Arbor, Washtenaw County, Michigan, 48109, United States"
+ ],
  "1443 washtenaw ave ground floor": null,
+ "1824 cocktails and coffee": null,
  "202 s. thayer": [
   42.2801066,
   -83.7399797,
@@ -21,6 +28,13 @@
   -83.739501,
   "Mason Hall, 419, South State Street, Germantown, Ann Arbor, Washtenaw County, Michigan, 48109, United States"
  ],
+ "3436 mason hall": [
+  42.277047,
+  -83.739501,
+  "Mason Hall, 419, South State Street, Germantown, Ann Arbor, Washtenaw County, Michigan, 48109, United States"
+ ],
+ "3rd floor, johnson rooms": null,
+ "4th floor, great lakes room": null,
  "5577 whittaker rd,  ypsilanti, mi 48197": [
   42.2082949,
   -83.6148498,
@@ -59,21 +73,32 @@
  ],
  "art & architecture shop, 2000 bonisteel room 1251": null,
  "baits ii coman house lounge": null,
+ "barbour lounge": null,
+ "betsy barbour house": null,
  "biological sciences building": [
   42.2789994,
   -83.734498,
   "Biological Sciences Building, 1105, North University Avenue, Ann Arbor, Washtenaw County, Michigan, 48109, United States"
  ],
+ "boulevard room (pierpont, 1st floor)": null,
  "buhr building": [
   42.2706389,
   -83.7467561,
   "Buhr Building, 200, Hill Street, Germantown, Ann Arbor, Washtenaw County, Michigan, 48109, United States"
  ],
+ "bursley blue apple lounge": null,
  "bursley main lobby": null,
+ "burton memorial tower": null,
  "campus farm": [
   42.2989056,
   -83.665014,
   "Campus Farm, Ann Arbor Charter Township, Washtenaw County, Michigan, United States"
+ ],
+ "center for academic innovation": null,
+ "center for the education of women": [
+  42.2792962,
+  -83.7448275,
+  "Center for the Education of Women+, East Liberty Street, Ann Arbor, Washtenaw County, Michigan, 48104, United States"
  ],
  "champaign, illinois": null,
  "chemistry dow lab": null,
@@ -86,6 +111,11 @@
   42.2906331,
   -83.7136628,
   "Cooley Laboratory, 2355, Bonisteel Boulevard, Ann Arbor, Washtenaw County, Michigan, 48109, United States"
+ ],
+ "detroit observatory": [
+  42.2819756,
+  -83.7316803,
+  "Detroit Observatory, 1398, East Ann Street, Ann Arbor, Washtenaw County, Michigan, 48109, United States"
  ],
  "diag (grass near mason hall)": null,
  "diag - central campus": null,
@@ -105,6 +135,7 @@
   -83.7209734,
   "Earl\u00a0V.\u00a0Moore Building, 1100, Baits Drive, Ann Arbor, Washtenaw County, Michigan, 48109, United States"
  ],
+ "east conference room, fourth floor, rackham graduate building": null,
  "east hall": [
   42.2757491,
   -83.7351998,
@@ -115,10 +146,26 @@
   -83.7351593,
   "East Quadrangle, 701, East University Avenue, Ann Arbor, Washtenaw County, Michigan, 48109, United States"
  ],
+ "electrical & computer engineering building / 1200 eecs": [
+  42.2923414,
+  -83.713876,
+  "Electrical\u00a0Engineering and Computer\u00a0Science Building, 1301, Beal Avenue, Ann Arbor, Washtenaw County, Michigan, 48109, United States"
+ ],
+ "electrical engineering and computer science building": [
+  42.2923414,
+  -83.713876,
+  "Electrical\u00a0Engineering and Computer\u00a0Science Building, 1301, Beal Avenue, Ann Arbor, Washtenaw County, Michigan, 48109, United States"
+ ],
+ "florent gillet - community lounge": null,
  "ford robotics building": [
   42.2945915,
   -83.7094127,
   "Ford Motor Company Robotics Building, 2505, Hayward Street, Ann Arbor, Washtenaw County, Michigan, 48109, United States"
+ ],
+ "francois-xavier bagnoud building": [
+  42.2934432,
+  -83.7121011,
+  "Francois\u2011Xavier Bagnoud Building, 1320, Beal Avenue, Ann Arbor, Washtenaw County, Michigan, 48109, United States"
  ],
  "frb 1050": null,
  "fxb 1024": [
@@ -126,12 +173,18 @@
   -83.7121011,
   "Francois\u2011Xavier Bagnoud Building, 1320, Beal Avenue, Ann Arbor, Washtenaw County, Michigan, 48109, United States"
  ],
+ "ga - rackham": null,
  "gallup park": [
   42.2763623,
   -83.6975072,
   "Gallup Park, 3000, Geddesburg, Ann Arbor, Washtenaw County, Michigan, 48105, United States"
  ],
  "geddes lounge": null,
+ "gerald ford library": [
+  42.2885704,
+  -83.7122941,
+  "Gerald\u00a0R.\u00a0Ford Presidential Library, 1000, Beal Avenue, Ann Arbor, Washtenaw County, Michigan, 48109, United States"
+ ],
  "gg brown laboratory": null,
  "growing hope": null,
  "hatcher graduate library": [
@@ -149,6 +202,7 @@
   -83.7422359,
   "Intramural Sports Building, 606, East Hoover Avenue, Ann Arbor, Washtenaw County, Michigan, 48109, United States"
  ],
+ "jordan living room": null,
  "kalamazoo (league, 2nd floor)": null,
  "kelsey museum of archaeology": [
   42.2767473,
@@ -161,16 +215,23 @@
   "Literature Science And The Arts, 500, South State Street, Germantown, Ann Arbor, Washtenaw County, Michigan, 48109, United States"
  ],
  "lsa building": null,
+ "lsa room 1040": null,
  "lurie ann & robert h. tower": [
   42.2920276,
   -83.7161807,
   "Ann and Robert H. Lurie Tower, 1230, Murfin Avenue, Ann Arbor, Washtenaw County, Michigan, 48109, United States"
  ],
+ "lurie biomedical engineering (formerly atl)": null,
  "maize and blue cupboard inside betsy barbour": null,
  "mason hall": [
   42.277047,
   -83.739501,
   "Mason Hall, 419, South State Street, Germantown, Ann Arbor, Washtenaw County, Michigan, 48109, United States"
+ ],
+ "matthaei botanical gardens": [
+  42.2926391,
+  -83.6598072,
+  "Matthaei Botanical Gardens, 1800, Dixboro, Ann Arbor, Washtenaw County, Michigan, 48105, United States"
  ],
  "medical science unit i": [
   42.2840312,
@@ -184,6 +245,7 @@
   -83.7377109,
   "Michigan League, 911, North University Avenue, Ann Arbor, Washtenaw County, Michigan, 48109, United States"
  ],
+ "michigan league ballroom": null,
  "michigan league, room 4": null,
  "michigan memorial phoenix project": [
   42.2907856,
@@ -204,11 +266,23 @@
   "Modern Languages Building, East Washington Street, Old Fourth Ward, Ann Arbor, Washtenaw County, Michigan, 48104, United States"
  ],
  "mpr b": null,
+ "multipurpose room, trotter multicultural center, 428 s state st, ann arbor, mi 48109": [
+  42.2770734,
+  -83.7410927,
+  "Trotter Multicultural Center, 428, South State Street, Germantown, Ann Arbor, Washtenaw County, Michigan, 48109, United States"
+ ],
+ "munger media room": null,
+ "museum of art": [
+  42.2755914,
+  -83.7398377,
+  "University of Michigan Museum of Art, 525, South State Street, Germantown, Ann Arbor, Washtenaw County, Michigan, 48109, United States"
+ ],
  "museum of natural history": [
   42.2788567,
   -83.7342551,
   "University of Michigan Museum of Natural\u00a0History, 1105, North University Avenue, Ann Arbor, Washtenaw County, Michigan, 48109, United States"
  ],
+ "north campus research complex building 10": null,
  "north campus research complex building 18": null,
  "north campus research complex building 20": null,
  "north quad": [
@@ -217,6 +291,11 @@
   "North Quad Dining Hall, 105, South State Street, Old Fourth Ward, Ann Arbor, Washtenaw County, Michigan, 48109, United States"
  ],
  "northwood community center": [
+  42.2971609,
+  -83.7093323,
+  "Northwood Community Center, 500, McIntyre Drive, Ann Arbor, Washtenaw County, Michigan, 48109, United States"
+ ],
+ "northwood community center mpr (1000 mcintyre)": [
   42.2971609,
   -83.7093323,
   "Northwood Community Center, 500, McIntyre Drive, Ann Arbor, Washtenaw County, Michigan, 48109, United States"
@@ -241,7 +320,9 @@
   -83.7338668,
   "Palmer Commons, Washtenaw Avenue, Ann Arbor, Washtenaw County, Michigan, 48108, United States"
  ],
+ "perlman honors commons": null,
  "pizza house on church st": null,
+ "prechter lab 2202, marsal school of education": null,
  "rackham graduate school (horace h.)": null,
  "rackham west conference room- fourth floor": null,
  "regents plaza": [
@@ -257,10 +338,17 @@
   "Ross School of Business, Hill Street, Burns Park, Ann Arbor, Washtenaw County, Michigan, 48104, United States"
  ],
  "rotunda lounge": null,
+ "school of public health": null,
  "school of public health building i- 1680": null,
+ "school of social work building": null,
  "south lounge": null,
  "south quad front yard": null,
  "south quad yard": null,
+ "st. andrew\u2019s episcopal church, 306 n. division st, ann arbor, mi 48104": [
+  42.2833949,
+  -83.7432184,
+  "Saint\u00a0Andrew's Episcopal Church, 306, North Division Street, Kerrytown, Ann Arbor, Washtenaw County, Michigan, 48104, United States"
+ ],
  "stamps gallery, 201 s division st, ann arbor, mi 48104": [
   42.280231,
   -83.743881,
@@ -271,6 +359,7 @@
   -83.743881,
   "201, South Division Street, Kerrytown, Ann Arbor, Washtenaw County, Michigan, 48104, United States"
  ],
+ "state theatre 2": null,
  "state theatre, 233 s. state": [
   42.2794205,
   -83.7406249,
@@ -298,6 +387,11 @@
   -83.7418588,
   "The Legacy at Ann Arbor, 616, East Washington Street, Old Fourth Ward, Ann Arbor, Washtenaw County, Michigan, 48104, United States"
  ],
+ "the state theatre: 233 s state st, ann arbor, mi 48104": [
+  42.2794205,
+  -83.7406249,
+  "State Theatre, 233, South State Street, Germantown, Ann Arbor, Washtenaw County, Michigan, 48104, United States"
+ ],
  "tisch hall": [
   42.2762384,
   -83.7395843,
@@ -311,10 +405,17 @@
  "trotter multicultural center - sankofa lounge": null,
  "u of m - sports coliseum,": null,
  "u-m soccer stadium": null,
+ "umsi central": null,
  "undergraduate science building room 4137": null,
  "university career center, 3200 student activities building, program room (3003), 515 e jefferson st, ann arbor, mi, united states": null,
  "university career center, 3200 student activities building, university career center office, 515 e jefferson st, ann arbor, mi, united states": null,
+ "university hospitals": [
+  42.2835971,
+  -83.7311675,
+  "University of Michigan Medical Center, East Ann Street, Ann Arbor, Washtenaw County, Michigan, 48109, United States"
+ ],
  "university of notre dame": null,
+ "vandenberg room, michigan league": null,
  "varsity tennis bldg": null,
  "walgreen drama center": [
   42.2919568,
@@ -339,6 +440,7 @@
   -83.7419113,
   "602, East Huron Street, Old Fourth Ward, Ann Arbor, Washtenaw County, Michigan, 48104, United States"
  ],
+ "west council room, 2nd floor (west side)": null,
  "west hall": [
   42.2759102,
   -83.7363589,
@@ -354,6 +456,7 @@
   -83.7352589,
   "Undergraduate Science Building, 204, Washtenaw Avenue, Ann Arbor, Washtenaw County, Michigan, 48108, United States"
  ],
+ "wolverine (union, 3rd floor)": null,
  "wolverine village": [
   42.2736039,
   -83.745105,

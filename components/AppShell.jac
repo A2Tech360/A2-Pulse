@@ -1,4 +1,5 @@
-"""Masthead + tab nav. Owns shared filters and app-wide dark/light theme."""
+"""Masthead + tab nav. Owns shared filters, app-wide dark/light theme and the
+live calendar sync that runs once when the app opens."""
 
 import from "@jac/runtime" { Routes, Route, Navigate, Link, useLocation }
 import from "@hugeicons/react" { HugeiconsIcon }
@@ -12,19 +13,27 @@ import from .pulse_theme {
 import from .NetworkPage { NetworkPage }
 import from .MapPage { MapPage }
 import from .MondayPage { MondayPage }
+import from ..services.pulse { sync_online_events, SyncReport }
 
 glob NAV_ITEMS: list[dict[str, any]] = [
-    {"label": "Network", "to": "/network"},
+    {"label": "My Monday", "to": "/monday"},
     {"label": "Map", "to": "/map"},
-    {"label": "My Monday", "to": "/monday"}
+    {"label": "Network", "to": "/network"}
 ];
+
+# Guards the open-time sync against remounts (and React's dev double-invoke).
+glob APP_SYNC_STARTED: bool = False;
 
 glob DAYS: list[str] = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
 glob MONTHS: list[str] = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
 
 def:pub AppShell() -> JsxElement {
     has filters: dict[str, any] = default_filters(),
-        dark: bool = read_dark_pref(True);
+        dark: bool = read_dark_pref(True),
+        syncing: bool = False,
+        syncNote: str = "",
+        # Bumped when a sync adds or changes events, so pages reload their data.
+        syncVersion: int = 0;
 
     path = useLocation().pathname;
     d: any = new(Date);
@@ -34,6 +43,30 @@ def:pub AppShell() -> JsxElement {
 
     async can with entry {
         apply_app_theme(dark);
+        sync_on_open();
+    }
+
+    async def sync_on_open {
+        # Non-forced: the server skips it if calendars synced in the last few minutes.
+        if APP_SYNC_STARTED {
+            return;
+        }
+        APP_SYNC_STARTED = True;
+        syncing = True;
+        try {
+            rep: SyncReport = await sync_online_events(False);
+            if rep.created + rep.updated > 0 {
+                syncVersion = syncVersion + 1;
+                syncNote = (
+                    f"{rep.created} new events" if rep.created > 0 else "Calendars up to date"
+                );
+            } elif not rep.ok {
+                syncNote = "Calendar sync failed";
+            }
+        } except Exception {
+            syncNote = "Calendar sync failed";
+        }
+        syncing = False;
     }
 
     can with [dark] entry {
@@ -53,7 +86,7 @@ def:pub AppShell() -> JsxElement {
         <div className="flex min-h-svh flex-col overflow-x-hidden bg-background text-foreground">
             <header className="sticky top-0 z-30 border-b border-border bg-background/80 backdrop-blur">
                 <div className="mx-auto flex h-14 w-full max-w-7xl items-center justify-between gap-4 pl-4 pr-4 sm:pl-6 sm:pr-6">
-                    <Link to="/network" className="flex items-center gap-2 text-foreground">
+                    <Link to="/monday" className="flex items-center gap-2 text-foreground">
                         <span className="size-2.5 rounded-full bg-foreground" />
                         <span className="text-base font-semibold tracking-tight">
                             {"A2 Pulse"}
@@ -78,6 +111,12 @@ def:pub AppShell() -> JsxElement {
                         }}
                     </nav>
                     <div className="flex items-center gap-3">
+                        {(syncing or syncNote) and <span
+                            className="hidden text-xs text-muted-foreground sm:inline"
+                            aria-live="polite"
+                        >
+                            {("Syncing calendars…" if syncing else syncNote)}
+                        </span>}
                         <span className="hidden text-xs text-muted-foreground md:inline">
                             {dateline}
                         </span>
@@ -101,7 +140,7 @@ def:pub AppShell() -> JsxElement {
                 <Routes>
                     <Route
                         path="/"
-                        element={<Navigate to="/network" replace={True} />}
+                        element={<Navigate to="/monday" replace={True} />}
                     />
                     <Route
                         path="/network"
@@ -110,6 +149,7 @@ def:pub AppShell() -> JsxElement {
                                 filters={filters}
                                 onFilters={set_filters}
                                 dark={dark}
+                                syncVersion={syncVersion}
                             />
                         }
                     />
@@ -120,13 +160,14 @@ def:pub AppShell() -> JsxElement {
                                 filters={filters}
                                 onFilters={set_filters}
                                 dark={dark}
+                                syncVersion={syncVersion}
                             />
                         }
                     />
                     <Route path="/monday" element={<MondayPage />} />
                     <Route
                         path="*"
-                        element={<Navigate to="/network" replace={True} />}
+                        element={<Navigate to="/monday" replace={True} />}
                     />
                 </Routes>
             </main>

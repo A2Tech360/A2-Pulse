@@ -27,7 +27,10 @@ import from ..services.pulse {
 }
 
 def:pub MapPage(
-    filters: dict[str, any], onFilters: Callable[[dict[str, any]], None], dark: bool = True
+    filters: dict[str, any],
+    onFilters: Callable[[dict[str, any]], None],
+    dark: bool = True,
+    syncVersion: int = 0
 ) -> JsxElement {
     has items: list[MapItem] = [],
         loading: bool = True,
@@ -98,6 +101,13 @@ def:pub MapPage(
 
     can with [filters] entry {
         load_pins();
+    }
+
+    # The app-open calendar sync finished with new data.
+    can with [syncVersion] entry {
+        if syncVersion > 0 {
+            load_pins();
+        }
     }
 
     can with [mapsReady] entry {

@@ -20,8 +20,10 @@ Hackathon (Local Impact track), University of Michigan, Sept 26–27, 2026.
 - **Network.** The knowledge graph itself: browse by places, topics and hosts,
   open a dossier for any node, and follow its links. The day and category
   filters you set here carry over to the map.
-- **Live sync.** "Sync live events" on the Network page pulls seven public
-  calendars into the graph (see [Data sources](#data-sources)).
+- **Live sync.** Opening the app pulls seven public calendars into the graph
+  (see [Data sources](#data-sources)), then refreshes the map and network. The
+  server skips repeat syncs within 3 minutes; "Sync live events" on the Network
+  page forces one.
 
 ## How the brief works
 
@@ -54,7 +56,7 @@ cp .env.example .env     # then fill in your keys
 jac run --serve empty    # serves the app on http://localhost:8000
 ```
 
-Pages: `/network`, `/map` and `/monday`.
+The app opens on My Monday (`/monday`); the other pages are `/map` and `/network`.
 
 ### Environment variables
 
@@ -68,7 +70,7 @@ Pages: `/network`, `/map` and `/monday`.
 
 ## Data sources
 
-**Live**, via the Network page's sync button (`services/event_ingest.jac`):
+**Live**, synced when the app opens (`services/event_ingest.jac`):
 
 | Source | How it's read |
 |---|---|

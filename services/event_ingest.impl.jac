@@ -97,6 +97,7 @@ glob VENUE_ALIASES: dict[str, str] = {
 };
 
 glob _last_sync_ts: float = 0.0;
+glob _sync_running: bool = False;
 glob SYNC_COOLDOWN_SEC: float = 180.0;
 
 def _llm_ready -> bool {
@@ -527,11 +528,39 @@ def _collect_raws(kind: str, text: str, url: str, name: str) -> list[RawEvent] {
 impl sync_online_events(force: bool) -> SyncReport {
     now = float(datetime.now().timestamp());
     rep = SyncReport(ok=True, message="");
+    if _sync_running {
+        rep.message = "Skipped - a sync is already running.";
+        return rep;
+    }
     if not force and _last_sync_ts > 0.0 and (now - _last_sync_ts) < SYNC_COOLDOWN_SEC {
         rep.message = "Skipped - synced recently. Use Sync live events to force.";
         rep.ok = True;
         return rep;
     }
+    # Claim the slot before the slow work, so a request arriving mid-sync
+    # (a page reload, a second tab) skips instead of running a parallel sync.
+    _sync_running = True;
+    _last_sync_ts = now;
+    try {
+        _sync_feeds(rep);
+    } finally {
+        _sync_running = False;
+    }
+    _last_sync_ts = float(datetime.now().timestamp());
+    if rep.created + rep.updated == 0 and len(rep.errors) > 0 {
+        rep.ok = False;
+        rep.message = "Could not ingest live events from public calendars.";
+    } else {
+        rep.message = (
+            f"Synced {rep.created} new / {rep.updated} updated from "
+            + str(len(rep.sources))
+            + " sources."
+        );
+    }
+    return rep;
+}
+
+def _sync_feeds(rep: SyncReport) -> None {
     hub = _hub();
     _ensure_categories(hub);
     _drop_legacy_um(hub);
@@ -593,18 +622,6 @@ impl sync_online_events(force: bool) -> SyncReport {
             rep.errors.append(name + ": " + str(e));
         }
     }
-    _last_sync_ts = float(datetime.now().timestamp());
-    if rep.created + rep.updated == 0 and len(rep.errors) > 0 {
-        rep.ok = False;
-        rep.message = "Could not ingest live events from public calendars.";
-    } else {
-        rep.message = (
-            f"Synced {rep.created} new / {rep.updated} updated from "
-            + str(len(rep.sources))
-            + " sources."
-        );
-    }
-    return rep;
 }
 
 impl list_live_events(limit: int) -> list[dict[str, any]] {
