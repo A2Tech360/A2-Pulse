@@ -5,3 +5,7 @@ node_modules/
 !.env.example
 logs/
 reports/
+
+# Python bytecode (event_dates.py / event_parse.py)
+__pycache__/
+*.py[cod]
