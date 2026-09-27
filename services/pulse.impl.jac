@@ -1327,6 +1327,22 @@ impl converse_query(text: str, prior: FilterSpec) -> FilterSpec {
             spec.kinds = [k for k in spec.kinds if k in KIND_TOGGLES];
             if spec.price not in ["any", "free", "under10"] { spec.price = "any"; }
             if spec.time not in ["today", "weekend", "week"] { spec.time = "week"; }
+            # Safety net: where the LLM left a field at its prior value but plain
+            # keywords clearly set it ("cheap", "saturday", "near campus",
+            # "closure", "council"), keep the keyword result.
+            kw = _heuristic_filters(text, prior);
+            if spec.price == prior.price and kw.price != prior.price { spec.price = kw.price; }
+            if spec.time == prior.time and kw.time != prior.time { spec.time = kw.time; }
+            if spec.distance == prior.distance and kw.distance != prior.distance { spec.distance = kw.distance; }
+            for k in ["alert", "civic"] {
+                if k in kw.kinds and k not in prior.kinds and k not in spec.kinds {
+                    spec.kinds = spec.kinds + [k];
+                }
+            }
+            if "alert" in spec.kinds and len(spec.kinds) == 1 {
+                # Alerts carry the community tag only; a topic filter would hide them.
+                spec.categories = [c for c in spec.categories if c == "community"];
+            }
             dval: any = spec.date;
             if not isinstance(dval, str) {
                 spec.date = prior.date;
