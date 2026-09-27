@@ -45,6 +45,7 @@ def:pub FilterBar(
     kinds: list[str] = filters["kinds"] or [];
     price: str = filters["price"] or "any";
     time: str = filters["time"] or "week";
+    date: str = filters["date"] or "";
     distance: float = filters["distance"] or 0.0;
     reply: str = filters["reply"] or "";
 
@@ -98,6 +99,7 @@ def:pub FilterBar(
                 kinds=kinds,
                 price=price,
                 time=time,
+                date=date,
                 distance=distance,
                 reply=""
             );
@@ -108,6 +110,7 @@ def:pub FilterBar(
                     "kinds": spec.kinds,
                     "price": spec.price,
                     "time": spec.time,
+                    "date": spec.date or "",
                     "distance": spec.distance,
                     "reply": spec.reply,
                     "query": text
@@ -130,6 +133,7 @@ def:pub FilterBar(
         + len(kinds)
         + (1 if price != "any" else 0)
         + (1 if time != "week" else 0)
+        + (1 if date else 0)
         + (1 if distance > 0.0 else 0);
 
     return

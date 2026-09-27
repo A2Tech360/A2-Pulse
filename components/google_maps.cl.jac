@@ -29,7 +29,9 @@ def:pub load_google_maps(key: str, on_ready: Callable[[], None]) {
     doc.head.appendChild(s);
 }
 
-def:pub map_popup_html(it: MapItem, dark: bool = True) -> str {
+def:pub map_popup_html(
+    it: MapItem, dark: bool = True, overview: str = "", tip: str = ""
+) -> str {
     price = "";
     if it.kind == "event" {
         price = " · Free" if it.price == 0.0 else " · $" + str(int(it.price));
@@ -44,6 +46,8 @@ def:pub map_popup_html(it: MapItem, dark: bool = True) -> str {
     if it.venue {
         when_bits = when_bits + (" · " if when_bits else "") + it.venue;
     }
+    body_text = overview if overview else it.desc;
+    tip_text = tip;
     emoji = kind_emoji(it.kind);
     # Match app theme: dark → gray bubble + light type; light → light bubble + dark type.
     bg = "#232322" if dark else "#fafaf9";
@@ -57,7 +61,7 @@ def:pub map_popup_html(it: MapItem, dark: bool = True) -> str {
         else "0 10px 28px rgba(0,0,0,0.28)"
     );
     return (
-        "<div style='max-width:260px;font-family:Geist Variable,system-ui,sans-serif;"
+        "<div style='max-width:280px;font-family:Geist Variable,system-ui,sans-serif;"
         + "background:"
         + bg
         + ";color:"
@@ -93,10 +97,19 @@ def:pub map_popup_html(it: MapItem, dark: bool = True) -> str {
         + (
             "<div style='font-size:12px;color:"
             + body
-            + ";margin-top:8px;line-height:1.4'>"
-            + it.desc
+            + ";margin-top:8px;line-height:1.45'>"
+            + body_text
             + "</div>"
-            if it.desc
+            if body_text
+            else ""
+        )
+        + (
+            "<div style='font-size:11px;color:"
+            + muted
+            + ";margin-top:8px;font-weight:600'>"
+            + tip_text
+            + "</div>"
+            if tip_text
             else ""
         )
         + "<div style='margin-top:10px'>"
@@ -106,6 +119,40 @@ def:pub map_popup_html(it: MapItem, dark: bool = True) -> str {
         + link
         + ";font-size:12px;"
         + "font-weight:600;text-decoration:none'>Directions</a></div></div>"
+    );
+}
+
+def bind_marker_click(
+    mk: any,
+    info: any,
+    map_obj: any,
+    html: str,
+    item_id: str,
+    on_focus: Callable[[str], None]
+) {
+    # Separate fn so Jac doesn't hoist loop vars into one shared closure.
+    captured_html = html;
+    captured_id = item_id;
+    captured_mk = mk;
+    mk.addListener(
+        "click",
+        lambda {
+            on_focus(captured_id);
+            info.setContent(captured_html);
+            info.open(map_obj, captured_mk);
+        }
+    );
+}
+
+def bind_line_click(line: any, info: any, map_obj: any, html: str) {
+    captured_html = html;
+    line.addListener(
+        "click",
+        lambda (ev: any) {
+            info.setContent(captured_html);
+            info.setPosition(ev.latLng);
+            info.open(map_obj);
+        }
     );
 }
 
@@ -169,7 +216,8 @@ def:pub sync_map_overlays(
     focus_id: str,
     distance_mi: float,
     dark: bool,
-    on_focus: Callable[[str], None]
+    on_focus: Callable[[str], None],
+    overviews: dict = {}
 ) -> list[any] {
     if not map_obj {
         return [];
@@ -209,8 +257,26 @@ def:pub sync_map_overlays(
     }
     for it in items {
         col = "#f5b942" if it.kind == "alert" else kind_color(it.kind);
-        html = map_popup_html(it, dark);
-        item_id = it.id;
+        ov_blurb = "";
+        ov_tip = "";
+        if it.id in overviews {
+            raw: any = overviews[it.id];
+            try {
+                b = raw["blurb"];
+                if b {
+                    ov_blurb = str(b);
+                }
+                t = raw["tip"];
+                if t {
+                    ov_tip = str(t);
+                }
+            } except Exception {
+                if raw {
+                    ov_blurb = str(raw);
+                }
+            }
+        }
+        html = map_popup_html(it, dark, ov_blurb, ov_tip);
         if len(it.path) > 1 {
             line: any = new(
                 gm.Polyline,
@@ -222,14 +288,7 @@ def:pub sync_map_overlays(
                     "strokeWeight": 5
                 }
             );
-            line.addListener(
-                "click",
-                lambda (ev: any) {
-                    info.setContent(html);
-                    info.setPosition(ev.latLng);
-                    info.open(map_obj);
-                }
-            );
+            bind_line_click(line, info, map_obj, html);
             fresh.append(line);
         }
         mk: any = new(
@@ -242,14 +301,7 @@ def:pub sync_map_overlays(
                 "icon": maps_marker_icon(gm, it.kind, it.id == focus_id, dark)
             }
         );
-        mk.addListener(
-            "click",
-            lambda {
-                on_focus(item_id);
-                info.setContent(html);
-                info.open(map_obj, mk);
-            }
-        );
+        bind_marker_click(mk, info, map_obj, html, it.id, on_focus);
         if it.id == focus_id {
             info.setContent(html);
             info.open(map_obj, mk);

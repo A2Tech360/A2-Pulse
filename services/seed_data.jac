@@ -18,7 +18,7 @@ glob SOURCES: list[dict] = [
 
 glob CATEGORIES: list[str] = [
     "music", "food", "sports", "academic", "social", "arts", "community",
-    "outdoor", "civic", "networking"
+    "outdoor", "civic", "networking", "nightlife", "comedy"
 ];
 
 glob PLACES: list[dict] = [
@@ -28,7 +28,8 @@ glob PLACES: list[dict] = [
     {"key": "pl-kerry", "name": "Kerrytown", "lat": 42.2846, "lng": -83.7456},
     {"key": "pl-plymouth", "name": "Plymouth Rd corridor", "lat": 42.3000, "lng": -83.7120},
     {"key": "pl-state", "name": "State Street", "lat": 42.2755, "lng": -83.7405},
-    {"key": "pl-washtenaw", "name": "Washtenaw Ave", "lat": 42.2730, "lng": -83.7280}
+    {"key": "pl-washtenaw", "name": "Washtenaw Ave", "lat": 42.2730, "lng": -83.7280},
+    {"key": "pl-ypsi", "name": "Ypsilanti", "lat": 42.2411, "lng": -83.6130}
 ];
 
 glob VENUES: list[dict] = [
@@ -40,7 +41,16 @@ glob VENUES: list[dict] = [
     {"key": "v-pier", "name": "Pierpont Commons", "address": "2101 Bonisteel Blvd", "lat": 42.2913, "lng": -83.7171, "place": "pl-north"},
     {"key": "v-gallup", "name": "Gallup Park", "address": "3000 Fuller Rd", "lat": 42.2745, "lng": -83.7040, "place": "pl-washtenaw"},
     {"key": "v-market", "name": "Ann Arbor Farmers Market", "address": "315 Detroit St", "lat": 42.2851, "lng": -83.7453, "place": "pl-kerry"},
-    {"key": "v-cityhall", "name": "Larcom City Hall", "address": "301 E Huron St", "lat": 42.2820, "lng": -83.7460, "place": "pl-main"}
+    {"key": "v-cityhall", "name": "Larcom City Hall", "address": "301 E Huron St", "lat": 42.2820, "lng": -83.7460, "place": "pl-main"},
+    {"key": "v-blindpig", "name": "The Blind Pig", "address": "208 S First St", "lat": 42.2802, "lng": -83.7498, "place": "pl-main"},
+    {"key": "v-michtheater", "name": "Michigan Theater", "address": "603 E Liberty St", "lat": 42.2790, "lng": -83.7415, "place": "pl-state"},
+    {"key": "v-power", "name": "Power Center", "address": "121 Fletcher St", "lat": 42.2798, "lng": -83.7365, "place": "pl-central"},
+    {"key": "v-rackham", "name": "Rackham Auditorium", "address": "915 E Washington St", "lat": 42.2805, "lng": -83.7380, "place": "pl-central"},
+    {"key": "v-clubabove", "name": "Club Above", "address": "215 S Ashley St", "lat": 42.2795, "lng": -83.7495, "place": "pl-main"},
+    {"key": "v-liminal", "name": "Liminal Lounge", "address": "215 S Ashley St", "lat": 42.2796, "lng": -83.7496, "place": "pl-main"},
+    {"key": "v-funhouse", "name": "Ann Arbor Funhouse", "address": "2370 Carpenter Rd", "lat": 42.2505, "lng": -83.6780, "place": "pl-washtenaw"},
+    {"key": "v-literati", "name": "Literati Bookstore", "address": "124 E Washington St", "lat": 42.2802, "lng": -83.7468, "place": "pl-main"},
+    {"key": "v-freighthouse", "name": "Ypsi Freighthouse", "address": "100 Market Pl, Ypsilanti", "lat": 42.2448, "lng": -83.6115, "place": "pl-ypsi"}
 ];
 
 glob ORGANIZERS: list[dict] = [
@@ -53,7 +63,10 @@ glob ORGANIZERS: list[dict] = [
     {"key": "o-aadl", "name": "Ann Arbor District Library", "org_type": "nonprofit", "venue": "v-aadl"},
     {"key": "o-career", "name": "U-M Career Center", "org_type": "club", "venue": "v-union"},
     {"key": "o-zing", "name": "Zingerman's", "org_type": "restaurant", "venue": "v-market"},
-    {"key": "o-msaa", "name": "Main Street Area Association", "org_type": "business", "venue": "v-ark"}
+    {"key": "o-msaa", "name": "Main Street Area Association", "org_type": "business", "venue": "v-ark"},
+    {"key": "o-blindpig", "name": "The Blind Pig", "org_type": "business", "venue": "v-blindpig"},
+    {"key": "o-michtheater", "name": "Michigan Theater", "org_type": "nonprofit", "venue": "v-michtheater"},
+    {"key": "o-clubabove", "name": "Club Above", "org_type": "business", "venue": "v-clubabove"}
 ];
 
 # day: 0 = Monday ... 6 = Sunday of the current week
@@ -71,7 +84,10 @@ glob EVENTS: list[dict] = [
     {"key": "e-pickup", "name": "Pickup Soccer on the Diag", "desc": "Casual pickup game, all levels, bring water.", "venue": "v-union", "org": "o-hike", "cats": ["sports", "outdoor", "social"], "day": 6, "time": "Sun 2:00 PM", "price": 0.0, "src": "src-um", "related": []},
     {"key": "e-llama-brunch", "name": "Jazz Brunch at Blue LLama", "desc": "Live trio with a seasonal brunch menu.", "venue": "v-llama", "org": "o-llama", "cats": ["music", "food"], "day": 6, "time": "Sun 11:00 AM", "price": 8.0, "src": "src-eb", "related": ["e-jazz-fri"]},
     {"key": "e-small-biz", "name": "Downtown Small Business Breakfast", "desc": "Owners share holiday-season plans with the DDA.", "venue": "v-aadl", "org": "o-msaa", "cats": ["networking", "community"], "day": 2, "time": "Wed 8:00 AM", "price": 5.0, "src": "src-city", "related": []},
-    {"key": "e-lecture", "name": "Public Lecture: Great Lakes Futures", "desc": "SEAS faculty on climate and water in Michigan.", "venue": "v-hill", "org": "o-ums", "cats": ["academic", "outdoor"], "day": 3, "time": "Thu 4:00 PM", "price": 0.0, "src": "src-um", "related": []}
+    {"key": "e-lecture", "name": "Public Lecture: Great Lakes Futures", "desc": "SEAS faculty on climate and water in Michigan.", "venue": "v-hill", "org": "o-ums", "cats": ["academic", "outdoor"], "day": 3, "time": "Thu 4:00 PM", "price": 0.0, "src": "src-um", "related": []},
+    {"key": "e-blindpig-indie", "name": "Indie Night at The Blind Pig", "desc": "Local bands and touring acts in the First Street basement.", "venue": "v-blindpig", "org": "o-blindpig", "cats": ["music", "nightlife"], "day": 4, "time": "Fri 9:00 PM", "price": 12.0, "src": "src-eb", "related": []},
+    {"key": "e-clubabove", "name": "Club Above Late Set", "desc": "House and disco upstairs above the Pig — doors at 10.", "venue": "v-clubabove", "org": "o-clubabove", "cats": ["nightlife", "music"], "day": 5, "time": "Sat 10:00 PM", "price": 10.0, "src": "src-eb", "related": ["e-blindpig-indie"]},
+    {"key": "e-mich-comedy", "name": "Michigan Theater Comedy Night", "desc": "Regional comics in the historic downtown theater.", "venue": "v-michtheater", "org": "o-michtheater", "cats": ["comedy", "arts"], "day": 5, "time": "Sat 8:00 PM", "price": 18.0, "src": "src-eb", "related": []}
 ];
 
 glob ALERTS: list[dict] = [
