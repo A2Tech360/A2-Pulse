@@ -1,5 +1,6 @@
 """My Monday: persona-aware brief from the Monday crew walkers, read aloud."""
 
+import from "@jac/runtime" { useNavigate }
 import from "@hugeicons/react" { HugeiconsIcon }
 import from "@hugeicons/core-free-icons" { SparklesIcon, ArrowUpRight01Icon, ThumbsUpIcon, ThumbsDownIcon, PlayIcon, StopIcon, Calendar03Icon }
 import from .ui.button { Button }
@@ -17,8 +18,21 @@ glob PERSONA_TABS: list[dict] = [
 
 glob VOICE_STORAGE_KEY: str = "a2pulse.voice";
 
+# Starting tab from ?who=you|student|shop (onboarding lands on "you").
+def initial_tab() -> str {
+    w: any = window;
+    q: str = w.location.search or "";
+    if "who=you" in q {
+        return "custom";
+    }
+    if "who=shop" in q {
+        return "shop";
+    }
+    return "student";
+}
+
 def:pub MondayPage() -> JsxElement {
-    has persona: str = "student",
+    has persona: str = initial_tab(),
         brief: Brief | None = None,
         loading: bool = False,
         error: str = "",
@@ -30,13 +44,20 @@ def:pub MondayPage() -> JsxElement {
         me: dict = {},
         note: str = "";
 
+    nav = useNavigate();
+
     # "custom" is the "You" tab: this browser's own profile on the server.
     def target_persona(p: str) -> str {
         return my_persona() if p == "custom" else p;
     }
 
+    # Explicit comparison: an empty dict is truthy once compiled to JS.
+    def me_onboarded() -> bool {
+        return me["onboarded"] == True;
+    }
+
     def tab_hint(tab: dict) -> str {
-        if tab["id"] != "custom" or not me or not me["home_name"] {
+        if tab["id"] != "custom" or not me["home_name"] {
             return tab["hint"];
         }
         home: str = me["home_name"];
@@ -180,6 +201,11 @@ def:pub MondayPage() -> JsxElement {
                 <p className="max-w-lg text-sm text-muted-foreground">{"The five things that touch your week, with what to do about each."}</p>
             </div>
             <div className="flex flex-col gap-2">
+                <div className="flex items-center justify-end">
+                    <button type="button" onClick={lambda (e: MouseEvent) { stop_audio(); nav("/welcome?edit=1"); }} className="text-xs font-medium text-muted-foreground underline-offset-4 hover:text-foreground hover:underline">
+                        {"Edit your profile" if me_onboarded() else "Set up your profile"}
+                    </button>
+                </div>
                 <div className="grid grid-cols-3 gap-1 rounded-lg bg-muted pt-1 pb-1 pl-1 pr-1">
                     {for p in PERSONA_TABS {
                         <button key={p["id"]} type="button" onClick={lambda (e: MouseEvent) { persona = p["id"]; }} className={"flex flex-col gap-0.5 rounded-md pt-2 pb-2 pl-3 pr-3 text-left transition-colors " + ("bg-foreground text-background" if persona == p["id"] else "hover:bg-background")}>

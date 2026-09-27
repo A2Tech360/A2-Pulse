@@ -15,7 +15,9 @@ glob LEGEND_KINDS: list[str] = ["event", "venue", "organizer", "alert", "civic"]
 
 def:pub MapAddressSearch(
     dark: bool,
-    onGoTo: Callable[[float, float, str], None]
+    onGoTo: Callable[[float, float, str], None],
+    inline: bool = False,
+    placeholder: str = "Search address or place…"
 ) -> JsxElement {
     has query: str = "",
         open: bool = False,
@@ -154,7 +156,11 @@ def:pub MapAddressSearch(
     }
 
     return
-        <div className="pointer-events-auto absolute top-4 left-4 right-4 z-10 sm:right-auto sm:w-[min(100%,360px)]">
+        <div className={
+            "relative z-10 w-full"
+            if inline
+            else "pointer-events-auto absolute top-4 left-4 right-4 z-10 sm:right-auto sm:w-[min(100%,360px)]"
+        }>
             <div
                 className={
                     "flex items-center gap-2 rounded-full border pl-3 pr-1.5 py-1.5 "
@@ -176,7 +182,7 @@ def:pub MapAddressSearch(
                             open = True;
                         }
                     }}
-                    placeholder="Search address or place…"
+                    placeholder={placeholder}
                     className="min-w-0 flex-1 bg-transparent text-sm text-foreground outline-none placeholder:text-muted-foreground"
                     aria-label="Search map addresses"
                     aria-autocomplete="list"
@@ -210,7 +216,7 @@ def:pub MapAddressSearch(
                 and len(places) > 0
                 and <div
                     role="listbox"
-                    className={"mt-2 overflow-hidden rounded-2xl border " + shell}
+                    className={("absolute left-0 right-0 " if inline else "") + "mt-2 overflow-hidden rounded-2xl border " + shell}
                 >
                     {for place in places {
                         <button

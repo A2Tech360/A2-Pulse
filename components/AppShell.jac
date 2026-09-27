@@ -1,6 +1,6 @@
 """Masthead + tab nav. Owns shared filters and app-wide dark/light theme."""
 
-import from "@jac/runtime" { Routes, Route, Navigate, Link, useLocation }
+import from "@jac/runtime" { Routes, Route, Navigate, Link, useLocation, useNavigate }
 import from "@hugeicons/react" { HugeiconsIcon }
 import from "@hugeicons/core-free-icons" { Sun01Icon, Moon02Icon }
 import from .pulse_theme {
@@ -12,12 +12,29 @@ import from .pulse_theme {
 import from .NetworkPage { NetworkPage }
 import from .MapPage { MapPage }
 import from .MondayPage { MondayPage }
+import from .WelcomePage { WelcomePage }
+import from .profile_store { load_profile }
 
 glob NAV_ITEMS: list[dict] = [
     {"label": "Network", "to": "/network"},
     {"label": "Map", "to": "/map"},
     {"label": "My Monday", "to": "/monday"}
 ];
+
+glob SKIP_KEY: str = "a2pulse.skipOnboarding";
+
+# "Just show me the demo" was chosen in this tab (sessionStorage, or in-memory fallback).
+def skipped_onboarding() -> bool {
+    w: any = window;
+    if w.__pulseSkipOnboarding {
+        return True;
+    }
+    try {
+        return sessionStorage.getItem(SKIP_KEY) == "1";
+    } except Exception {
+        return False;
+    }
+}
 
 glob DAYS: list[str] = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
 glob MONTHS: list[str] = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
@@ -27,6 +44,7 @@ def:pub AppShell() -> JsxElement {
         dark: bool = read_dark_pref(True);
 
     path = useLocation().pathname;
+    nav = useNavigate();
     d: any = new(Date);
     day_name: str = DAYS[d.getDay() as int];
     month_name: str = MONTHS[d.getMonth() as int];
@@ -34,6 +52,12 @@ def:pub AppShell() -> JsxElement {
 
     async can with entry {
         apply_app_theme(dark);
+        # New visitors start with onboarding (once per page load).
+        start_path: str = path;
+        prof: dict = await load_profile();
+        if prof["ok"] and not prof["onboarded"] and not skipped_onboarding() and not start_path.startswith("/welcome") {
+            nav("/welcome", {"replace": True});
+        }
     }
 
     can with [dark] entry {
@@ -124,6 +148,7 @@ def:pub AppShell() -> JsxElement {
                         }
                     />
                     <Route path="/monday" element={<MondayPage />} />
+                    <Route path="/welcome" element={<WelcomePage dark={dark} />} />
                     <Route
                         path="*"
                         element={<Navigate to="/network" replace={True} />}
