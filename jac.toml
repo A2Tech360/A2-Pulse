@@ -6,9 +6,14 @@ entry-point = "main.jac"
 kind = "web-app"
 
 [byllm]
+# The model is chosen at startup from LLM_MODEL in .env (see .env.example and
+# services/pulse_llm.jac). No provider or model is hard-coded; the provider's
+# own key env var (OPENAI_API_KEY, ANTHROPIC_API_KEY, GEMINI_API_KEY, ...) is
+# read by LiteLLM directly. "mockllm" is byLLM's built-in null model: every
+# Jac module resolves the ambient `llm` on import and an empty name raises when
+# no key is set, so it only fills the slot while the LLM is off.
 [byllm.model]
-default_model = "${LLM_MODEL:-gpt-4o-mini}"
-api_key = "${OPENAI_API_KEY:-}"
+default_model = "${LLM_MODEL:-mockllm}"
 
 
 [jac-shadcn]
@@ -76,13 +81,14 @@ lib_imports = ["import tailwindcss from '@tailwindcss/vite'"]
 [client.app_meta_data]
 title = "A2 Pulse - Ann Arbor's Living Local Graph"
 description = "Events, closures, clubs and civic items in one living graph. Explore the network, see the map, hear your Monday brief."
-keywords = "jac, starter, shadcn, template"
-author = "Blank canvas"
+keywords = "Ann Arbor, events, road closures, city council, University of Michigan, local news"
+author = "A2 Pulse"
 theme_color = "#dc7702"
+icon = "/assets/favicon.svg"
 og_type = "website"
-og_title = "A blank canvas"
-og_description = "A minimal jac-shadcn starter."
-og_site_name = "Blank canvas"
+og_title = "A2 Pulse - Ann Arbor's living local graph"
+og_description = "Events, closures, clubs and council items in one graph, plus a one-minute Monday brief made for you."
+og_site_name = "A2 Pulse"
 
 
 [jacpack]

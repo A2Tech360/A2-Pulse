@@ -7,6 +7,8 @@ import from .ui.button { Button }
 import from .FilterBar { FilterBar }
 import from .map_markers { sticker_img_url }
 import from .pulse_theme { campus_lat, campus_lng }
+import from .profile_store { my_persona, load_profile }
+import from .net { with_timeout }
 import from .MapChrome {
     MapAddressSearch,
     MapLegend,
@@ -34,6 +36,7 @@ def:pub MapPage(
         focusId: str = "",
         apiKey: str = "",
         keyChecked: bool = False,
+        mapDown: bool = False,
         mapsReady: bool = False,
         mapEl: Ref[HTMLDivElement] = Ref(),
         mapRef: Ref[any] = Ref(None),
@@ -42,8 +45,18 @@ def:pub MapPage(
         searchPinRef: Ref[any] = Ref(None),
         pinOverviews: dict = {};
 
-    async can with entry {
-        cfg = await maps_config();
+    async def load_config -> None {
+        mapDown = False;
+        cfg: any = None;
+        try {
+            cfg = await with_timeout(maps_config(), None);
+        } except Exception {
+            cfg = None;
+        }
+        if cfg is None {
+            mapDown = True;    # server unreachable: say so instead of a blank map or "add a key"
+            return;
+        }
         key = cfg["key"] or "";
         apiKey = key;
         keyChecked = True;
@@ -52,26 +65,51 @@ def:pub MapPage(
         }
     }
 
-    async def load_pins {
+    async can with entry {
+        load_config();
+    }
+
+    async def fetch_pins -> any {
+        await load_profile();    # make sure this browser's profile exists
+        res = root spawn MapSnapshot(
+            categories=filters["categories"] or [],
+            kinds=filters["kinds"] or [],
+            price=filters["price"] or "any",
+            time=filters["time"] or "week",
+            date=filters["date"] or "",
+            distance=filters["distance"] or 0.0,
+            clat=campus_lat(),
+            clng=campus_lng(),
+            persona=my_persona()
+        );
+        return res;
+    }
+
+    async def load_pins -> None {
         loading = True;
         error = "";
+        w: any = window;
+        req: int = (w.__pulsePinsReq or 0) + 1;
+        w.__pulsePinsReq = req;
+        res: any = None;
         try {
-            res = root spawn MapSnapshot(
-                categories=filters["categories"] or [],
-                kinds=filters["kinds"] or [],
-                price=filters["price"] or "any",
-                time=filters["time"] or "week",
-                date=filters["date"] or "",
-                distance=filters["distance"] or 0.0,
-                clat=campus_lat(),
-                clng=campus_lng(),
-                persona="student"
-            );
-            items = res.reports[0] if res.reports and len(res.reports) > 0 else [];
+            res = await with_timeout(fetch_pins(), None);
         } except Exception {
-            error = "Could not load the map layer.";
+            res = None;
+        }
+        if w.__pulsePinsReq != req {
+            return;
+        }
+        if res is None {
+            error = "Can't reach the A2 Pulse server right now. Check your connection, then retry.";
+        } else {
+            items = res.reports[0] if res.reports and len(res.reports) > 0 else [];
         }
         loading = False;
+    }
+
+    def clear_filters(e: MouseEvent) {
+        onFilters({"categories": [], "kinds": [], "price": "any", "time": "week", "date": "", "distance": 0.0, "reply": "", "query": ""});
     }
 
     async def ensure_overview(id: str) {
@@ -173,7 +211,15 @@ def:pub MapPage(
             >
                 <div ref={mapEl} className="absolute inset-0"/>
                 {keyChecked and not apiKey and <MapKeyMissing/>}
-                {apiKey and not mapsReady and <MapLoading/>}
+                {mapDown
+                    and <div className="absolute inset-0 z-10 flex items-center justify-center pl-6 pr-6" role="alert">
+                        <div className="flex max-w-sm flex-col items-center gap-3 rounded-xl border border-border bg-card pt-6 pb-6 pl-6 pr-6 text-center shadow-sm">
+                            <HugeiconsIcon icon={Location01Icon} strokeWidth={2} className="size-5 text-muted-foreground" />
+                            <p className="text-sm text-foreground">{"The map can't load right now. Check your connection, then retry."}</p>
+                            <Button variant="outline" size="sm" onClick={lambda (e: MouseEvent) { load_config(); load_pins(); }}>{"Retry"}</Button>
+                        </div>
+                    </div>}
+                {((apiKey and not mapsReady) or (not keyChecked and not mapDown)) and <MapLoading/>}
                 {mapsReady
                     and <MapAddressSearch dark={dark} onGoTo={go_to_place}/>}
                 {mapsReady and <MapLegend dark={dark}/>}
@@ -192,7 +238,7 @@ def:pub MapPage(
                         </span>
                     </div>
                     <p className="text-xs text-muted-foreground">
-                        {"Includes student commute-route alerts from the graph."}
+                        {"Includes closures on your home and commute route."}
                     </p>
                     {error
                         and <div className="flex items-center gap-3">
@@ -228,6 +274,9 @@ def:pub MapPage(
                             <p className="text-xs text-muted-foreground">
                                 {"Widen the distance or clear a filter."}
                             </p>
+                            <Button variant="outline" size="sm" className="mt-1" onClick={clear_filters}>
+                                {"Clear filters"}
+                            </Button>
                         </div>
                         skip;
                     }}

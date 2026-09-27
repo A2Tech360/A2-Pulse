@@ -1,0 +1,11 @@
+#!/bin/sh
+# Brief quality eval: GenerateBrief for Jordan, Maya and six synthetic profiles,
+# on a throwaway graph (JAC_DATA_PATH temp dir) so the dev graph is untouched.
+# Report: reports/eval_briefs.md. Exit code 1 if any profile fails.
+# The LLM mode follows LLM_MODEL (env or .env), so rerun unchanged once a model is set.
+set -u
+cd "$(dirname "$0")/.." || exit 2
+JAC="${JAC:-$(command -v jac || echo "$HOME/.local/bin/jac")}"
+DATA="$(mktemp -d "${TMPDIR:-/tmp}/a2pulse-eval.XXXXXX")"
+trap 'rm -rf "$DATA"' EXIT
+JAC_DATA_PATH="$DATA" "$JAC" run scripts/eval_briefs.jac "$@"

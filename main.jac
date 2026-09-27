@@ -9,6 +9,8 @@ import from services.pulse {
     Snapshot, GNode, GEdge, MapItem, Dossier, Brief, BriefItem, FilterSpec,
     PlaceSuggestion, MapOverview, DossierMedia, DossierImage
 }
+# Per-browser profiles + onboarding endpoints.
+import from services.pulse { get_profile, save_profile, nearest_place, route_places, onboarding_options }
 import from services.event_ingest { sync_online_events, list_live_events, SyncReport }
 
 import ".styles.global.css";

@@ -9,13 +9,20 @@ import from "@hugeicons/core-free-icons" {
 }
 import from .map_markers { sticker_img_url }
 import from .pulse_theme { kind_label }
+import from .net { with_timeout }
 sv import from ..services.pulse { suggest_places, geocode_address, PlaceSuggestion }
 
 glob LEGEND_KINDS: list[str] = ["event", "venue", "organizer", "alert", "civic"];
+# OpenStreetMap Nominatim etiquette: wait for a pause in typing, never a request per keystroke.
+glob SUGGEST_DEBOUNCE_MS: int = 1000;
+glob SUGGEST_MIN_CHARS: int = 3;
 
 def:pub MapAddressSearch(
     dark: bool,
-    onGoTo: Callable[[float, float, str], None]
+    onGoTo: Callable[[float, float, str], None],
+    inline: bool = False,
+    placeholder: str = "Search address or place…",
+    fallbackHint: str = "Try again in a moment."
 ) -> JsxElement {
     has query: str = "",
         open: bool = False,
@@ -39,17 +46,25 @@ def:pub MapAddressSearch(
 
     async def fetch_suggestions(q: str) {
         ql = q.strip();
-        if len(ql) < 2 {
-            places = [];
-            open = False;
+        w: any = window;
+        if len(ql) < SUGGEST_MIN_CHARS or ql == w.__pulseLastSuggest {
             return;
         }
+        w.__pulseLastSuggest = ql;
         suggestSeq = suggestSeq + 1;
         seq = suggestSeq;
         try {
-            rows = await suggest_places(ql);
+            rows: any = await with_timeout(suggest_places(ql), None);
+            if rows is None {
+                w.__pulseLastSuggest = "";
+                if seq == suggestSeq {
+                    err = "Address search is slow right now. " + fallbackHint;
+                }
+                return;
+            }
             apply_suggestions(seq, rows);
         } except Exception {
+            w.__pulseLastSuggest = "";
             if seq == suggestSeq {
                 places = [];
                 open = False;
@@ -65,7 +80,7 @@ def:pub MapAddressSearch(
             lambda {
                 fetch_suggestions(q);
             },
-            280
+            SUGGEST_DEBOUNCE_MS
         );
     }
 
@@ -73,7 +88,7 @@ def:pub MapAddressSearch(
         q = e.target.value;
         query = q;
         err = "";
-        if len(q.strip()) < 2 {
+        if len(q.strip()) < SUGGEST_MIN_CHARS {
             places = [];
             open = False;
             if timerRef.current {
@@ -103,17 +118,21 @@ def:pub MapAddressSearch(
         err = "";
         open = False;
         try {
-            place = await geocode_address(q);
+            place: any = await with_timeout(geocode_address(q), None);
             busy = False;
+            if place is None {
+                err = "Address search is slow right now. " + fallbackHint;
+                return;
+            }
             if not place.label {
-                err = "No places match that search.";
+                err = "We couldn't find that address. Check the spelling. " + fallbackHint;
                 return;
             }
             query = place.label;
             onGoTo(place.lat, place.lng, place.label);
         } except Exception {
             busy = False;
-            err = "Could not look up that address.";
+            err = "Address search isn't reachable right now. " + fallbackHint;
         }
     }
 
@@ -154,7 +173,11 @@ def:pub MapAddressSearch(
     }
 
     return
-        <div className="pointer-events-auto absolute top-4 left-4 right-4 z-10 sm:right-auto sm:w-[min(100%,360px)]">
+        <div className={
+            "relative z-10 w-full"
+            if inline
+            else "pointer-events-auto absolute top-4 left-4 right-4 z-10 sm:right-auto sm:w-[min(100%,360px)]"
+        }>
             <div
                 className={
                     "flex items-center gap-2 rounded-full border pl-3 pr-1.5 py-1.5 "
@@ -176,8 +199,8 @@ def:pub MapAddressSearch(
                             open = True;
                         }
                     }}
-                    placeholder="Search address or place…"
-                    className="min-w-0 flex-1 bg-transparent text-sm text-foreground outline-none placeholder:text-muted-foreground"
+                    placeholder={placeholder}
+                    className="min-w-0 flex-1 bg-transparent text-sm text-foreground outline-none placeholder:text-muted-foreground [&::-webkit-search-cancel-button]:appearance-none"
                     aria-label="Search map addresses"
                     aria-autocomplete="list"
                     autoComplete="off"
@@ -210,7 +233,7 @@ def:pub MapAddressSearch(
                 and len(places) > 0
                 and <div
                     role="listbox"
-                    className={"mt-2 overflow-hidden rounded-2xl border " + shell}
+                    className={("absolute left-0 right-0 " if inline else "") + "mt-2 overflow-hidden rounded-2xl border " + shell}
                 >
                     {for place in places {
                         <button
@@ -308,9 +331,12 @@ def:pub MapKeyMissing() -> JsxElement {
 
 def:pub MapLoading() -> JsxElement {
     return
-        <div className="absolute inset-0 flex items-center justify-center">
-            <span className="text-sm text-muted-foreground">
-                {"Loading Google Maps..."}
-            </span>
+        <div className="absolute inset-0 animate-pulse bg-muted" aria-busy="true" aria-label="Loading the map">
+            <div className="absolute top-4 left-4 right-4 h-11 rounded-full bg-background/60 sm:right-auto sm:w-[360px]" />
+            <div className="absolute bottom-4 left-4 flex gap-2">
+                <div className="h-9 w-20 rounded-full bg-background/60" />
+                <div className="h-9 w-20 rounded-full bg-background/60" />
+                <div className="h-9 w-20 rounded-full bg-background/60" />
+            </div>
         </div>;
 }

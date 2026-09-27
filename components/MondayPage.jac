@@ -1,11 +1,15 @@
 """My Monday: persona-aware brief from the Monday crew walkers, read aloud."""
 
+import from "@jac/runtime" { useNavigate }
 import from "@hugeicons/react" { HugeiconsIcon }
 import from "@hugeicons/core-free-icons" { SparklesIcon, ArrowUpRight01Icon, ThumbsUpIcon, ThumbsDownIcon, PlayIcon, StopIcon, Calendar03Icon }
 import from .ui.button { Button }
 import from .ui.skeleton { Skeleton }
 import from .ui.select { Select, SelectTrigger, SelectValue, SelectContent, SelectItem }
 import from .pulse_theme { kind_color, kind_label }
+import from .profile_store { my_persona, load_profile, commute_verb }
+import from .net { with_timeout }
+import from .BriefDebugPanel { BriefDebugPanel }
 sv import from ..services.pulse { GenerateBrief, Feedback, Brief, BriefItem, list_personas, speak_brief, list_voices }
 
 glob PERSONA_TABS: list[dict] = [
@@ -16,8 +20,21 @@ glob PERSONA_TABS: list[dict] = [
 
 glob VOICE_STORAGE_KEY: str = "a2pulse.voice";
 
+# Starting tab from ?who=you|student|shop (onboarding lands on "you").
+def initial_tab() -> str {
+    w: any = window;
+    q: str = w.location.search or "";
+    if "who=you" in q {
+        return "custom";
+    }
+    if "who=shop" in q {
+        return "shop";
+    }
+    return "student";
+}
+
 def:pub MondayPage() -> JsxElement {
-    has persona: str = "student",
+    has persona: str = initial_tab(),
         brief: Brief | None = None,
         loading: bool = False,
         error: str = "",
@@ -26,23 +43,99 @@ def:pub MondayPage() -> JsxElement {
         voice_loading: bool = False,
         voices: list[dict] = [],
         voice_id: str = "",
+        me: dict = {},
+        voice_note: str = "",
         note: str = "";
 
+    nav = useNavigate();
+
+    # "custom" is the "You" tab: this browser's own profile on the server.
+    def target_persona(p: str) -> str {
+        return my_persona() if p == "custom" else p;
+    }
+
+    # Explicit comparison: an empty dict is truthy once compiled to JS.
+    def me_onboarded() -> bool {
+        return me["onboarded"] == True;
+    }
+
+    # Next step from a thin brief: edit your own profile, or go make one.
+    def widen_label() -> str {
+        return "Add interests" if persona == "custom" else ("See your brief" if me_onboarded() else "Build your profile");
+    }
+
+    def widen_brief() {
+        stop_audio();
+        if persona == "custom" {
+            nav("/welcome?edit=1");
+        } elif me_onboarded() {
+            persona = "custom";
+        } else {
+            nav("/welcome");
+        }
+    }
+
+    def tab_hint(tab: dict) -> str {
+        if tab["id"] != "custom" or not me["home_name"] {
+            return tab["hint"];
+        }
+        home: str = me["home_name"];
+        mode: str = me["commute"];
+        return home + ", " + commute_verb(mode);
+    }
+
+    async def run_brief(who: str, ai: bool) -> any {
+        res = root spawn GenerateBrief(persona=who, use_ai=ai);
+        return res;
+    }
+
+    # Brief with deadlines: the full (AI) brief gets 8 s, then the instant template
+    # brief gets 8 s, then a plain error with Retry. The skeleton shows meanwhile.
     async def generate -> None {
         loading = True;
         error = "";
         note = "";
+        who: str = target_persona(persona);
+        w: any = window;
+        req: int = (w.__pulseBriefReq or 0) + 1;
+        w.__pulseBriefReq = req;
+        if brief is not None and brief.persona != who {
+            brief = None;    # switching people: show the skeleton, not the last person's brief
+        }
+        got: any = None;
+        quick: bool = False;
         try {
-            res = root spawn GenerateBrief(persona=persona, use_ai=True);
-            brief = res.reports[0] if res.reports and len(res.reports) > 0 else None;
-            votes = {};
+            if persona == "custom" {
+                await load_profile();
+            }
+            got = await with_timeout(run_brief(who, True), None);
+            if got is None and w.__pulseBriefReq == req {
+                quick = True;
+                got = await with_timeout(run_brief(who, False), None);
+            }
         } except Exception {
-            error = "The Monday crew could not finish the brief.";
+            got = None;
+        }
+        if w.__pulseBriefReq != req {
+            return;    # a newer request (tab switch / regenerate) owns the screen
+        }
+        if got is None {
+            error = "Can't reach the A2 Pulse server right now. Check your connection, then retry.";
+        } else {
+            brief = got.reports[0] if got.reports and len(got.reports) > 0 else None;
+            votes = {};
+            if quick {
+                note = "The full brief was taking too long, so this is the quick version. Regenerate to try again.";
+            }
         }
         loading = False;
     }
 
     async can with entry {
+        prof: dict = await load_profile();
+        if prof["ok"] {
+            me = prof;
+        }
         saved: str = "";
         try {
             saved = localStorage.getItem(VOICE_STORAGE_KEY) or "";
@@ -50,7 +143,7 @@ def:pub MondayPage() -> JsxElement {
             saved = "";
         }
         try {
-            res: dict = await list_voices();
+            res: dict = await with_timeout(list_voices(), {"voices": []});
             loaded: list[dict] = res["voices"] or [];
             voices = loaded;
             ids: list[str] = [v["id"] for v in loaded];
@@ -79,7 +172,7 @@ def:pub MondayPage() -> JsxElement {
         nxt: dict = {**votes};
         nxt[it.key] = "up" if up else "down";
         votes = nxt;
-        root spawn Feedback(persona=persona, item_key=it.key, up=up);
+        root spawn Feedback(persona=target_persona(persona), item_key=it.key, up=up);
         note = ("Noted. More " if up else "Noted. Less ") + it.category + " next week. Regenerate to see the new ranking.";
     }
 
@@ -126,9 +219,11 @@ def:pub MondayPage() -> JsxElement {
         w.__pulseVoiceReq = req;
         text: str = brief.summary;
         voice_loading = True;
+        voice_note = "";
         res: dict = {"audio": "", "error": ""};
         try {
-            res = await speak_brief(text, voice_id);
+            # 12 s, not the usual 8: ElevenLabs needs ~5 s for a full brief, plus a cold voice-list check.
+            res = await with_timeout(speak_brief(target_persona(persona), voice_id), {"audio": "", "error": "timeout", "code": "timeout"}, 12000);
         } except Exception {
             res = {"audio": "", "error": "Voice request failed"};
         }
@@ -138,11 +233,23 @@ def:pub MondayPage() -> JsxElement {
         voice_loading = False;
         if not res["audio"] {
             print("ElevenLabs unavailable, using browser voice:", res["error"]);
+            code: str = res["code"] or "";
+            if not w.speechSynthesis {
+                voice_note = "Voice isn't available right now. The brief is written above.";
+            } elif code == "rate_limited" {
+                voice_note = "The studio voice is taking a short break, so your browser is reading the brief.";
+            } else {
+                voice_note = "The studio voice didn't respond, so your browser is reading the brief.";
+            }
             speak_fallback(text);
             return;
         }
         a: any = new(w.Audio, res["audio"]);
         a.onended = lambda { speaking = False; };
+        a.onerror = lambda {
+            voice_note = "The studio voice couldn't play, so your browser is reading the brief.";
+            speak_fallback(text);
+        };
         w.__pulsePlayer = a;
         speaking = True;
         a.play();
@@ -156,11 +263,20 @@ def:pub MondayPage() -> JsxElement {
                 <p className="max-w-lg text-sm text-muted-foreground">{"The five things that touch your week, with what to do about each."}</p>
             </div>
             <div className="flex flex-col gap-2">
+                <div className="flex items-center justify-end gap-3">
+                    <button type="button" onClick={lambda (e: MouseEvent) { stop_audio(); nav("/welcome?edit=1"); }} className="text-xs font-medium text-muted-foreground underline-offset-4 hover:text-foreground hover:underline">
+                        {"Edit your profile" if me_onboarded() else "Set up your profile"}
+                    </button>
+                    <span className="text-xs text-muted-foreground/50" aria-hidden="true">{"·"}</span>
+                    <button type="button" onClick={lambda (e: MouseEvent) { stop_audio(); nav("/welcome?reset=1"); }} className="text-xs font-medium text-muted-foreground underline-offset-4 hover:text-foreground hover:underline" title="Give this browser a new, blank profile and onboard again">
+                        {"Start fresh"}
+                    </button>
+                </div>
                 <div className="grid grid-cols-3 gap-1 rounded-lg bg-muted pt-1 pb-1 pl-1 pr-1">
                     {for p in PERSONA_TABS {
                         <button key={p["id"]} type="button" onClick={lambda (e: MouseEvent) { persona = p["id"]; }} className={"flex flex-col gap-0.5 rounded-md pt-2 pb-2 pl-3 pr-3 text-left transition-colors " + ("bg-foreground text-background" if persona == p["id"] else "hover:bg-background")}>
                             <span className="kicker">{p["label"]}</span>
-                            <span className={"text-xs " + ("text-background/70" if persona == p["id"] else "text-muted-foreground")}>{p["hint"]}</span>
+                            <span className={"text-xs " + ("text-background/70" if persona == p["id"] else "text-muted-foreground")}>{tab_hint(p)}</span>
                         </button>
                     }}
                 </div>
@@ -206,6 +322,8 @@ def:pub MondayPage() -> JsxElement {
             </div>
         </div>
 
+        {voice_note and <p className="-mt-4 text-xs text-muted-foreground" role="status">{voice_note}</p>}
+
         {error and <div className="flex items-center gap-3">
             <p className="text-sm text-destructive">{error}</p>
             <Button variant="outline" size="sm" onClick={lambda (e: MouseEvent) { generate(); }}>{"Retry"}</Button>
@@ -236,10 +354,22 @@ def:pub MondayPage() -> JsxElement {
 
         {#* the five items *#}
         {if loading and brief is None {
-            <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-                <Skeleton className="h-48" />
-                <Skeleton className="h-48" />
-                <Skeleton className="h-48" />
+            <div className="flex flex-col gap-8" aria-busy="true" aria-label="Building your brief">
+                <div className="grid gap-6 lg:grid-cols-[2fr_1fr]">
+                    <Skeleton className="h-56 rounded-xl" />
+                    <div className="flex flex-col gap-3 lg:pl-6">
+                        <Skeleton className="h-3 w-28" />
+                        <Skeleton className="h-4 w-full" />
+                        <Skeleton className="h-4 w-5/6" />
+                        <Skeleton className="h-4 w-4/6" />
+                        <Skeleton className="h-4 w-5/6" />
+                    </div>
+                </div>
+                <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+                    <Skeleton className="h-48 rounded-xl" />
+                    <Skeleton className="h-48 rounded-xl" />
+                    <Skeleton className="h-48 rounded-xl" />
+                </div>
             </div>
             skip;
         }}
@@ -249,6 +379,7 @@ def:pub MondayPage() -> JsxElement {
             </div>
             <p className="font-display text-lg font-bold">{"A quiet week"}</p>
             <p className="text-sm text-muted-foreground">{"Nothing in the graph touches this profile yet."}</p>
+            <Button variant="outline" size="sm" className="mt-2" onClick={lambda (e: MouseEvent) { widen_brief(); }}>{widen_label()}</Button>
         </div>}
         {brief and len(brief.items) > 0 and <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
             {for (idx, it) in enumerate(brief.items if brief else []) {
@@ -283,5 +414,13 @@ def:pub MondayPage() -> JsxElement {
                 </article>
             }}
         </div>}
+        {brief and len(brief.items) > 0 and len(brief.items) < 5 and <div className="flex flex-col items-start gap-3 rounded-xl border border-dashed pt-4 pb-4 pl-5 pr-5 sm:flex-row sm:items-center sm:justify-between">
+            <p className="text-sm text-muted-foreground">
+                {f"Only {len(brief.items)} " + ("thing touches" if len(brief.items) == 1 else "things touch") + " this profile this week. "}
+                {"Add interests or follow a few groups to widen it." if persona == "custom" else "Build your own profile to see what touches you."}
+            </p>
+            <Button variant="outline" size="sm" onClick={lambda (e: MouseEvent) { widen_brief(); }}>{widen_label()}</Button>
+        </div>}
+        <BriefDebugPanel persona={target_persona(persona)} />
     </div>;
 }
