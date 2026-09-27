@@ -197,6 +197,7 @@ def:pub AppShell() -> JsxElement {
                             <MondayPage
                                 filters={filters}
                                 onFilters={set_filters}
+                                dark={dark}
                             />
                         }
                     />

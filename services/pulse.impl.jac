@@ -1,8 +1,11 @@
 """Bodies for pulse.jac: seeding, filters, traversal and ranking."""
 
 import from services.event_dates { event_matches_date, parse_iso_date, label_for_iso }
+import from services.road_snap { snap_path }
 
 glob KIND_TOGGLES: list[str] = ["event", "organizer", "alert", "civic"];
+# Run seed migrations once per process — rescanning every MapSnapshot after live ingest was ~60s+.
+glob _SEED_MIGRATED: bool = False;
 glob MAX_NODES: int = 90;
 glob MAX_BROWSE_CHILDREN: int = 24;
 glob BROWSE_LENSES: list[dict] = [
@@ -171,13 +174,27 @@ impl _migrate_seed_extras(hub: Hub) {
         }
         n +>:SourcedFrom():+> have[sk];
     }
+    # Refresh closure / detour geometries so map lines follow streets.
+    for a in ALERTS {
+        ak = str(a["key"]);
+        if ak not in have {
+            continue;
+        }
+        alert_n = have[ak];
+        if alert_n.kind == "alert" {
+            alert_n.path = a["path"];
+        }
+    }
 }
 
 impl _ensure_seed -> Hub {
     hubs = [root -->][?:Hub];
     if len(hubs) > 0 {
         hub = hubs[0];
-        _migrate_seed_extras(hub);
+        if not _SEED_MIGRATED {
+            _migrate_seed_extras(hub);
+            _SEED_MIGRATED = True;
+        }
         return hub;
     }
     hub = Hub();
@@ -273,6 +290,7 @@ impl _ensure_seed -> Hub {
             prof +>:Follows():+> by_key[o];
         }
     }
+    _SEED_MIGRATED = True;
     return hub;
 }
 
@@ -1212,11 +1230,44 @@ impl MapSnapshot.start {
 }
 
 impl MapSnapshot.scan {
-    visit [here -->][?:PulseNode];
+    # Category filter: reverse-walk from Category nodes so we don't visit every live event.
+    if len(self.categories) > 0 {
+        for cat in [here -->][?:Category] {
+            if cat.name not in self.categories {
+                continue;
+            }
+            if len(self.kinds) == 0 or "event" in self.kinds {
+                visit [cat <-:TaggedAs:<-][?:Event];
+            }
+            if len(self.kinds) == 0 or "alert" in self.kinds {
+                visit [cat <-:TaggedAs:<-][?:Alert];
+            }
+            if len(self.kinds) == 0 or "civic" in self.kinds {
+                visit [cat <-:TaggedAs:<-][?:CivicItem];
+            }
+        }
+        if len(self.kinds) == 0 or "organizer" in self.kinds {
+            visit [here -->][?:Organizer];
+        }
+        return;
+    }
+    # Only walk map-relevant node types — visiting every PulseNode (venues, sources,
+    # categories, places) plus schema-drift reloads made MapSnapshot take 60s+.
+    visit [here -->][?:Event];
+    visit [here -->][?:Alert];
+    visit [here -->][?:CivicItem];
+    if len(self.kinds) == 0 or "organizer" in self.kinds {
+        visit [here -->][?:Organizer];
+    }
 }
 
 impl MapSnapshot.pin {
     if here.kind not in KIND_TOGGLES {
+        return;
+    }
+    # Upsert always copies venue coords onto the event. lat/lng == 0 means
+    # online / unplaceable live listings — skip without edge walks.
+    if here.kind == "event" and here.lat == 0.0 and here.lng == 0.0 {
         return;
     }
     on_route = here.key in self.route_keys;
@@ -1243,24 +1294,42 @@ impl MapSnapshot.pin {
     } elif not _passes(here, spec, self.clat, self.clng) {
         return;
     }
-    pin = _resolve_pin_coords(here);
-    if pin is None {
-        return;
+    # Prefer already-stored coords (ingest copies venue lat/lng). Skip landmark/venue
+    # edge walks — those dominated MapSnapshot time after live sync.
+    plat: float = here.lat;
+    plng: float = here.lng;
+    where_lbl: str = here.address if here.address else here.name;
+    if plat == 0.0 and plng == 0.0 {
+        pin = _resolve_pin_coords(here);
+        if pin is None {
+            return;
+        }
+        plat = float(pin["lat"]);
+        plng = float(pin["lng"]);
+        where_lbl = str(pin["label"]) if pin["label"] else where_lbl;
     }
-    plat: float = float(pin["lat"]);
-    plng: float = float(pin["lng"]);
     if not on_route and spec.distance > 0.0 {
         if _miles(self.clat, self.clng, plat, plng) > spec.distance {
             return;
         }
     }
-    ven = _venue_of(here);
-    where_lbl: str = str(pin["label"]) if pin["label"] else (ven.name if ven else here.address);
+    # Stickers: when filtering by category, tags match the filter. Otherwise skip the
+    # TaggedAs edge walk (408 live events × edge load was ~40s).
+    pin_cats: list[str] = list(self.categories) if len(self.categories) > 0 else [];
+    # cache_only: never block the map walker on Roads/OSRM HTTP.
+    draw_path: list = here.path;
+    if here.kind == "alert" and len(draw_path) > 1 {
+        try {
+            draw_path = snap_path(draw_path, True);
+        } except Exception {
+            draw_path = here.path;
+        }
+    }
     self.items.append(MapItem(
         id=jid(here), key=here.key, name=here.name, kind=here.kind, desc=here.desc,
         when=here.when, price=here.price, lat=plat, lng=plng,
-        venue=where_lbl, categories=_cats_of(here),
-        source_name=here.source_name, source_url=here.source_url, path=here.path,
+        venue=where_lbl, categories=pin_cats,
+        source_name=here.source_name, source_url=here.source_url, path=draw_path,
         dist=round(_miles(self.clat, self.clng, plat, plng), 2)
     ));
 }

@@ -2890,7 +2890,7 @@ def:pub NetworkPage(
                     </button>
                     {showFilters
                         and <div className="mt-3">
-                            <FilterBar filters={filters} onChange={onFilters}/>
+                            <FilterBar filters={filters} onChange={onFilters} dark={dark}/>
                         </div>}
                 </div>
                 <div className="border-t pt-4">

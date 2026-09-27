@@ -11,11 +11,11 @@ import from .ui.input { Input }
 import from .ui.slider { Slider }
 import from .ui.toggle_group { ToggleGroup, ToggleGroupItem }
 import from .ui.select { Select, SelectTrigger, SelectValue, SelectContent, SelectItem }
+import from .map_markers { sticker_img_url }
 import from .pulse_theme {
     all_categories,
     kind_options,
     default_filters,
-    kind_color,
     future_date_chips
 }
 sv import from ..services.pulse { converse_query }
@@ -41,8 +41,43 @@ def:pub FilterChip(
         </button>;
 }
 
+def:pub StickerChip(
+    label: str,
+    active: bool,
+    onToggle: Callable[[], None],
+    dark: bool,
+    kind: str = "event",
+    categories: list[str] = []
+) -> JsxElement {
+    tone = (
+        "border-foreground bg-foreground text-background"
+        if active
+        else "border-border bg-card text-foreground hover:bg-muted"
+    );
+    return
+        <button
+            type="button"
+            onClick={lambda (e: MouseEvent) { onToggle(); }}
+            className={
+                "inline-flex items-center gap-1.5 rounded-full border pt-1 pb-1 pl-1.5 pr-2.5 text-xs font-medium capitalize shadow-sm transition-colors "
+                + tone
+            }
+            aria-pressed={active}
+        >
+            <img
+                src={sticker_img_url(kind, dark, categories)}
+                alt=""
+                className="h-7 w-7 object-contain"
+            />
+            <span>{label}</span>
+        </button>;
+}
+
 def:pub FilterBar(
-    filters: dict, onChange: Callable[[dict], None], showDistance: bool = True
+    filters: dict,
+    onChange: Callable[[dict], None],
+    showDistance: bool = True,
+    dark: bool = True
 ) -> JsxElement {
     has draft: str = "",
         asking: bool = False,
@@ -95,6 +130,15 @@ def:pub FilterBar(
         }
     }
 
+    # Bind outside the JSX loop so each chip captures its own value (Jac/JS closure).
+    def bind_toggle_cat(c: str) -> Callable[[], None] {
+        return lambda { toggle_cat(c); };
+    }
+
+    def bind_toggle_kind(k: str) -> Callable[[], None] {
+        return lambda { toggle_kind(k); };
+    }
+
     def on_day_select(v: str) {
         if not v or v == "any" {
             patch("date", "");
@@ -105,6 +149,10 @@ def:pub FilterBar(
 
     def set_distance_preset(mi: float) {
         patch("distance", mi);
+    }
+
+    def bind_distance(mi: float) -> Callable[[], None] {
+        return lambda { set_distance_preset(mi); };
     }
 
     async def ask -> None {
@@ -218,19 +266,22 @@ def:pub FilterBar(
                 </div>
                 <div className="flex flex-wrap gap-1.5">
                     {for k in kind_options() {
-                        <FilterChip
+                        <StickerChip
                             key={k["value"]}
                             label={k["label"]}
                             active={k["value"] in kinds}
-                            onToggle={lambda { toggle_kind(k["value"]); }}
-                            color={kind_color(k["value"])}
+                            onToggle={bind_toggle_kind(k["value"])}
+                            dark={dark}
+                            kind={k["value"]}
                         />
                     }}
-                    <FilterChip
+                    <StickerChip
                         label="Posted"
                         active={include_posted}
                         onToggle={lambda { patch("community", not include_posted); }}
-                        color={kind_color("community")}
+                        dark={dark}
+                        kind="community"
+                        categories={["community"]}
                     />
                 </div>
             </div>
@@ -240,11 +291,14 @@ def:pub FilterBar(
                 </span>
                 <div className="flex flex-wrap gap-1.5">
                     {for c in all_categories() {
-                        <FilterChip
+                        <StickerChip
                             key={c}
                             label={c}
                             active={c in cats}
-                            onToggle={lambda { toggle_cat(c); }}
+                            onToggle={bind_toggle_cat(c)}
+                            dark={dark}
+                            kind="event"
+                            categories={[c]}
                         />
                     }}
                 </div>
@@ -325,22 +379,22 @@ def:pub FilterBar(
                         <FilterChip
                             label="Any"
                             active={distance == 0.0}
-                            onToggle={lambda { set_distance_preset(0.0); }}
+                            onToggle={bind_distance(0.0)}
                         />
                         <FilterChip
                             label="1 mi"
                             active={distance == 1.0}
-                            onToggle={lambda { set_distance_preset(1.0); }}
+                            onToggle={bind_distance(1.0)}
                         />
                         <FilterChip
                             label="2 mi"
                             active={distance == 2.0}
-                            onToggle={lambda { set_distance_preset(2.0); }}
+                            onToggle={bind_distance(2.0)}
                         />
                         <FilterChip
                             label="5 mi"
                             active={distance == 5.0}
-                            onToggle={lambda { set_distance_preset(5.0); }}
+                            onToggle={bind_distance(5.0)}
                         />
                     </div>
                     <Slider

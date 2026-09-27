@@ -92,7 +92,7 @@ def initial_tab() -> str {
 }
 
 def:pub MondayPage(
-    filters: dict, onFilters: Callable[[dict], None]
+    filters: dict, onFilters: Callable[[dict], None], dark: bool = True
 ) -> JsxElement {
     has persona: str = initial_tab(),
         brief: Brief | None = None,
@@ -591,7 +591,7 @@ def:pub MondayPage(
                     {"Same chips as Network and Map — narrow the brief when the graph is crowded."}
                 </p>
             </div>
-            <FilterBar filters={filters} onChange={onFilters} showDistance={True}/>
+            <FilterBar filters={filters} onChange={onFilters} showDistance={True} dark={dark}/>
         </aside>
     </div>;
 }

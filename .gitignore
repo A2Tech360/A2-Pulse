@@ -13,3 +13,5 @@ __pycache__/
 # Happening @ Michigan feed + geocode caches (services/umich_feed.py)
 services/.geocache.json
 services/.um_feed_cache.json
+# Road-snap densification cache (services/road_snap.py)
+services/.road_snap_cache.json

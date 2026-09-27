@@ -11,7 +11,6 @@ import from .profile_store { my_persona, load_profile }
 import from .net { with_timeout }
 import from .MapChrome {
     MapAddressSearch,
-    MapLegend,
     MapKeyMissing,
     MapLoading
 }
@@ -26,10 +25,13 @@ import from .google_maps {
     clear_search_pin
 }
 sv import from ..services.pulse { MapSnapshot, MapItem, maps_config, map_pin_overview, MapOverview }
+sv import from ..services.event_ingest { sync_online_events, SyncReport }
 
 glob MAP_PIN_CAP: int = 80;
 glob MAP_LIST_CAP: int = 120;
-glob MAP_FETCH_MS: int = 20000;
+# Same live calendars Network pulls — keep map pins in sync even if Network wasn't visited.
+glob MAP_LIVE_SYNCED: bool = False;
+glob MAP_FETCH_MS: int = 45000;
 
 def join_filter_list(vals: list[str]) -> str {
     out: str = "";
@@ -106,6 +108,21 @@ def:pub MapPage(
 
     async can with entry {
         load_config();
+        # Background: same public-calendar sync Network uses so map pins include live listings.
+        if not MAP_LIVE_SYNCED {
+            MAP_LIVE_SYNCED = True;
+            ensure_live_sync();
+        }
+    }
+
+    async def ensure_live_sync -> None {
+        try {
+            rep: SyncReport = await sync_online_events(False);
+            if rep.ok and (rep.created > 0 or rep.updated > 0) {
+                load_pins();
+            }
+        } except Exception {
+        }
     }
 
     def map_kinds() -> list[str] {
@@ -362,7 +379,6 @@ def:pub MapPage(
                 {((apiKey and not mapsReady) or (not keyChecked and not mapDown)) and <MapLoading/>}
                 {mapsReady
                     and <MapAddressSearch dark={dark} onGoTo={go_to_place}/>}
-                {mapsReady and <MapLegend dark={dark}/>}
                 {loading
                     and mapsReady
                     and <div className="pointer-events-none absolute left-1/2 top-4 z-20 -translate-x-1/2 rounded-full border border-border bg-card/95 px-3 py-1.5 text-xs font-medium text-foreground shadow-sm">
@@ -372,7 +388,7 @@ def:pub MapPage(
             <aside
                 className="flex w-full flex-col gap-6 border-t border-border bg-background pt-6 pb-6 pl-6 pr-6 lg:w-[380px] lg:border-l lg:border-t-0"
             >
-                <FilterBar filters={filters} onChange={onFilters}/>
+                <FilterBar filters={filters} onChange={onFilters} dark={dark}/>
                 <div className="flex flex-col gap-2 border-t border-border pt-5">
                     <div className="flex items-baseline justify-between gap-2">
                         <h3 className="text-sm font-semibold text-foreground">

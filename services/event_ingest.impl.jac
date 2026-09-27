@@ -441,7 +441,9 @@ def _upsert_event(hub: Hub, raw: RawEvent, src: SourceDoc) -> str {
         existing.address = address;
         cur = [existing ->:HostedAt:->][?:Venue];
         if ven is None or len(cur) == 0 or cur[0].key != ven.key {
-            del [edge existing ->:HostedAt:->];
+            for e in [edge existing ->:HostedAt:->] {
+                del e;
+            }
             if ven {
                 existing +>:HostedAt():+> ven;
             }
