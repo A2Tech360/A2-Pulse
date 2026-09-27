@@ -11,7 +11,7 @@ import from .ui.input { Input }
 import from .ui.slider { Slider }
 import from .ui.toggle_group { ToggleGroup, ToggleGroupItem }
 import from .pulse_theme { all_categories, kind_options, default_filters, kind_color }
-sv import from ..services.pulse { converse_query, FilterSpec }
+import from ..services.pulse { converse_query, FilterSpec }
 
 def:pub FilterChip(
     label: str, active: bool, onToggle: Callable[[], None], color: str = ""
@@ -35,7 +35,7 @@ def:pub FilterChip(
 }
 
 def:pub FilterBar(
-    filters: dict, onChange: Callable[[dict], None], showDistance: bool = True
+    filters: dict[str, any], onChange: Callable[[dict[str, any]], None], showDistance: bool = True
 ) -> JsxElement {
     has draft: str = "",
         asking: bool = False,

@@ -19,13 +19,7 @@ import from react { useEffect }
 import from .ui.input { Input }
 import from .ui.skeleton { Skeleton }
 import from .ui.button { Button }
-import from .ui.select {
-    Select,
-    SelectTrigger,
-    SelectValue,
-    SelectContent,
-    SelectItem
-}
+import from .ui.select { Select, SelectTrigger, SelectValue, SelectContent, SelectItem }
 import from .FilterBar { FilterBar }
 import from .pulse_theme { kind_color, kind_label, future_date_chips, default_filters }
 
@@ -48,28 +42,28 @@ glob ZOOM_WHEEL_STEP: float = 0.00135;
 glob ZOOM_SPREAD_GAIN: float = 0.95;
 
 glob LEGEND: list[str] = [
-    "lens",
-    "place",
-    "venue",
-    "category",
-    "organizer",
-    "event",
-    "alert",
-    "civic"
-];
-glob LENS_STARTERS: list[dict] = [
-    {"key": "all", "name": "All"},
-    {"key": "lens-places", "name": "Places"},
-    {"key": "lens-topics", "name": "Topics"},
-    {"key": "lens-who", "name": "Hosts"},
-    {"key": "lens-city", "name": "City"}
-];
+         "lens",
+         "place",
+         "venue",
+         "category",
+         "organizer",
+         "event",
+         "alert",
+         "civic"
+     ];
+glob LENS_STARTERS: list[dict[str, any]] = [
+         {"key": "all", "name": "All"},
+         {"key": "lens-places", "name": "Places"},
+         {"key": "lens-topics", "name": "Topics"},
+         {"key": "lens-who", "name": "Hosts"},
+         {"key": "lens-city", "name": "City"}
+     ];
 glob LENS_ONLY: list[str] = [
-    "lens-places",
-    "lens-topics",
-    "lens-who",
-    "lens-city"
-];
+         "lens-places",
+         "lens-topics",
+         "lens-who",
+         "lens-city"
+     ];
 glob NET_AUTO_SYNCED: bool = False;
 
 def node_radius(depth: int, kind: str) -> float {
@@ -91,7 +85,8 @@ def node_radius(depth: int, kind: str) -> float {
 def is_leaf_kind(kind: str) -> bool {
     return kind in ["event", "alert", "civic"];
 }
-sv import from ..services.pulse {
+
+import from ..services.pulse {
     NetworkBrowse,
     SearchArchive,
     GetDossier,
@@ -103,7 +98,7 @@ sv import from ..services.pulse {
     DossierImage,
     DossierMedia
 }
-sv import from ..services.event_ingest { sync_online_events, SyncReport }
+import from ..services.pulse { sync_online_events, SyncReport }
 
 def:pub DossierPanel(
     dossier: Dossier,
@@ -119,9 +114,7 @@ def:pub DossierPanel(
     if dossier.address {
         where_bits = where_bits + (" · " if where_bits else "") + dossier.address;
     }
-    price_label = (
-        "Free" if dossier.price == 0.0 else f"${dossier.price:.0f}"
-    );
+    price_label = "Free" if dossier.price == 0.0 else f"${dossier.price:.0f}";
 
     async def load_photos {
         nid = dossier.id;
@@ -178,11 +171,15 @@ def:pub DossierPanel(
                     {"Close"}
                 </button>
             </div>
-            <h2 className="mt-4 font-display text-2xl font-bold leading-tight tracking-tight text-foreground sm:text-[1.65rem]">
+            <h2
+                className="mt-4 font-display text-2xl font-bold leading-tight tracking-tight text-foreground sm:text-[1.65rem]"
+            >
                 {dossier.name}
             </h2>
             {photosLoading
-                and <div className="mt-4 overflow-hidden rounded-xl border border-border bg-muted/40">
+                and <div
+                    className="mt-4 overflow-hidden rounded-xl border border-border bg-muted/40"
+                >
                     <Skeleton className="h-40 w-full rounded-none"/>
                 </div>}
             {not photosLoading
@@ -191,11 +188,7 @@ def:pub DossierPanel(
                     <div
                         className={(
                             "grid gap-2 "
-                            + (
-                                "grid-cols-1"
-                                    if len(photos) == 1
-                                    else "grid-cols-2"
-                            )
+                            + ("grid-cols-1" if len(photos) == 1 else "grid-cols-2")
                         )}
                     >
                         {for (i, im) in enumerate(photos) {
@@ -231,14 +224,16 @@ def:pub DossierPanel(
                                     }}
                                 />
                                 {(im.caption or im.credit)
-                                    and <figcaption className="border-t border-border pt-1.5 pb-1.5 pl-2.5 pr-2.5 text-[10px] leading-snug text-muted-foreground">
+                                    and <figcaption
+                                        className="border-t border-border pt-1.5 pb-1.5 pl-2.5 pr-2.5 text-[10px] leading-snug text-muted-foreground"
+                                    >
                                         {(
                                             im.caption
-                                            + (
-                                                " · " + im.credit
-                                                    if im.credit
-                                                    else ""
-                                            )
+                                                + (
+                                                    " · " + im.credit
+                                                        if im.credit
+                                                        else ""
+                                                )
                                                 if im.caption
                                                 else im.credit
                                         )}
@@ -251,31 +246,38 @@ def:pub DossierPanel(
                 and <p className="mt-4 text-[15px] leading-relaxed text-foreground/85">
                     {dossier.desc}
                 </p>}
-            <dl className="mt-6 flex flex-col gap-2.5 border-t border-border pt-5 text-sm">
+            <dl
+                className="mt-6 flex flex-col gap-2.5 border-t border-border pt-5 text-sm"
+            >
                 {dossier.when
                     and <div className="flex items-baseline gap-4">
-                        <dt className="w-20 shrink-0 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+                        <dt
+                            className="w-20 shrink-0 text-[11px] font-medium uppercase tracking-wide text-muted-foreground"
+                        >
                             {"When"}
                         </dt>
                         <dd className="text-foreground">{dossier.when}</dd>
-                    </div>}
-                {where_bits
+                    </div>}{where_bits
                     and <div className="flex items-baseline gap-4">
-                        <dt className="w-20 shrink-0 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+                        <dt
+                            className="w-20 shrink-0 text-[11px] font-medium uppercase tracking-wide text-muted-foreground"
+                        >
                             {"Where"}
                         </dt>
                         <dd className="text-foreground">{where_bits}</dd>
-                    </div>}
-                {dossier.organizer
+                    </div>}{dossier.organizer
                     and <div className="flex items-baseline gap-4">
-                        <dt className="w-20 shrink-0 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+                        <dt
+                            className="w-20 shrink-0 text-[11px] font-medium uppercase tracking-wide text-muted-foreground"
+                        >
                             {"Who"}
                         </dt>
                         <dd className="text-foreground">{dossier.organizer}</dd>
-                    </div>}
-                {dossier.kind == "event"
+                    </div>}{dossier.kind == "event"
                     and <div className="flex items-baseline gap-4">
-                        <dt className="w-20 shrink-0 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+                        <dt
+                            className="w-20 shrink-0 text-[11px] font-medium uppercase tracking-wide text-muted-foreground"
+                        >
                             {"Price"}
                         </dt>
                         <dd
@@ -284,10 +286,11 @@ def:pub DossierPanel(
                         >
                             {price_label}
                         </dd>
-                    </div>}
-                {dossier.source_name
+                    </div>}{dossier.source_name
                     and <div className="flex items-baseline gap-4">
-                        <dt className="w-20 shrink-0 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+                        <dt
+                            className="w-20 shrink-0 text-[11px] font-medium uppercase tracking-wide text-muted-foreground"
+                        >
                             {"Source"}
                         </dt>
                         <dd className="text-foreground">
@@ -304,8 +307,7 @@ def:pub DossierPanel(
                                         strokeWidth={2}
                                         className="size-3.5"
                                     />
-                                </a>}
-                            {not dossier.source_url and dossier.source_name}
+                                </a>}{not dossier.source_url and dossier.source_name}
                         </dd>
                     </div>}
             </dl>
@@ -322,7 +324,9 @@ def:pub DossierPanel(
                 </div>}
             {len(dossier.links) > 0
                 and <div className="mt-6 border-t border-border pt-5">
-                    <span className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+                    <span
+                        className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground"
+                    >
                         {"Tied to"}
                     </span>
                     <ul className="mt-3 flex flex-col gap-1.5">
@@ -335,9 +339,7 @@ def:pub DossierPanel(
                                 >
                                     <span
                                         className="size-2 shrink-0 rounded-full"
-                                        style={{
-                                            "backgroundColor": kind_color(ln.kind)
-                                        }}
+                                        style={{"backgroundColor": kind_color(ln.kind)}}
                                     />
                                     <span className="flex-1 truncate font-medium">
                                         {ln.name}
@@ -354,9 +356,9 @@ def:pub DossierPanel(
                 <Button
                     size="sm"
                     variant="outline"
-                    onClick={lambda (e: MouseEvent) {
-                        onCenter(dossier.key, dossier.name);
-                    }}
+                    onClick={lambda (e: MouseEvent) { onCenter(
+                        dossier.key, dossier.name
+                    ); }}
                 >
                     {"Center here"}
                 </Button>
@@ -365,12 +367,12 @@ def:pub DossierPanel(
 }
 
 def:pub NetworkPage(
-    filters: dict, onFilters: Callable[[dict], None], dark: bool = True
+    filters: dict[str, any], onFilters: Callable[[dict[str, any]], None], dark: bool = True
 ) -> JsxElement {
     has focusKey: str = "root",
         focusName: str = "Ann Arbor",
         activeTab: str = "all",
-        trail: list[dict] = [{"key": "root", "name": "Ann Arbor"}],
+        trail: list[dict[str, any]] = [{"key": "root", "name": "Ann Arbor"}],
         expandedKeys: list[str] = ["root"],
         nodes: list[GNode] = [],
         edges: list[GEdge] = [],
@@ -400,13 +402,7 @@ def:pub NetworkPage(
             }
         ),
         nodeDrag: Ref[any] = Ref(
-            {
-                "active": False,
-                "id": "",
-                "didDrag": False,
-                "startX": 0.0,
-                "startY": 0.0
-            }
+            {"active": False, "id": "", "didDrag": False, "startX": 0.0, "startY": 0.0}
         ),
         panRef: Ref[any] = Ref({"x": 0.0, "y": 0.0}),
         zoomRef: Ref[float] = Ref(1.0),
@@ -455,9 +451,8 @@ def:pub NetworkPage(
         }
         if fid {
             for e in edges {
-                if (e.source == fid and e.target == n.id) or (
-                    e.target == fid and e.source == n.id
-                ) {
+                if (e.source == fid and e.target == n.id)
+                    or (e.target == fid and e.source == n.id) {
                     return 0.92;
                 }
             }
@@ -707,9 +702,8 @@ def:pub NetworkPage(
                 g.x = cx;
                 g.y = cy;
             } else {
-                ang: float = (6.283185307 * float(i)) / float(
-                    max(len(snap.nodes) - 1, 1)
-                );
+                ang: float = (6.283185307 * float(i))
+                    / float(max(len(snap.nodes) - 1, 1));
                 g.x = round(cx + 210.0 * (Math.cos(ang) as float), 1);
                 g.y = round(cy + 160.0 * (Math.sin(ang) as float), 1);
                 i += 1;
@@ -720,10 +714,7 @@ def:pub NetworkPage(
         expandedKeys = [lens_key];
         focusKey = lens_key;
         focusName = lens_name;
-        trail = [
-            {"key": "root", "name": "All"},
-            {"key": lens_key, "name": lens_name}
-        ];
+        trail = [{"key": "root", "name": "All"}, {"key": lens_key, "name": lens_name}];
         selected = None;
         selectedId = "";
         error = "";
@@ -949,8 +940,7 @@ def:pub NetworkPage(
         if sim {
             try {
                 sim.stop();
-            } except Exception {
-            }
+            } except Exception {}
         }
         simRef.current = None;
         # Keep simById so the next rebuild can inherit live positions
@@ -993,8 +983,7 @@ def:pub NetworkPage(
                             svy = float(pd["vy"]) * 0.12;
                         }
                     }
-                } except Exception {
-                }
+                } except Exception {}
             }
             d: dict[str, any] = {
                 "id": n.id,
@@ -1011,9 +1000,7 @@ def:pub NetworkPage(
                 "fy": None
             };
             # In All overview, pin the big hubs so branches don't collapse together.
-            if activeTab == "all" and (
-                n.key == "root" or is_lens_key(n.key)
-            ) {
+            if activeTab == "all" and (n.key == "root" or is_lens_key(n.key)) {
                 d["fx"] = sx;
                 d["fy"] = sy;
             }
@@ -1024,27 +1011,20 @@ def:pub NetworkPage(
         for e in edges {
             if e.source in by_id and e.target in by_id {
                 sim_links.append(
-                    {
-                        "source": e.source,
-                        "target": e.target,
-                        "label": e.label
-                    }
+                    {"source": e.source, "target": e.target, "label": e.label}
                 );
             }
         }
         z_any0: any = zoomRef.current;
-        z_spread: float = zoom_spread(
-            float(z_any0) if z_any0 is not None else 1.0
-        );
+        z_spread: float = zoom_spread(float(z_any0) if z_any0 is not None else 1.0);
         link_f: any = (
-            forceLink(sim_links)
-            .id(lambda (d: any) -> str { return str(d["id"]); })
-            .distance(
-                FORCE_LINK_DIST
-                * (1.45 if activeTab == "all" else 1.0)
-                * z_spread
+            forceLink(sim_links).id(
+                lambda (d: any) -> str { return str(d["id"]); }
+            ).distance(
+                FORCE_LINK_DIST * (1.45 if activeTab == "all" else 1.0) * z_spread
+            ).strength(
+                FORCE_LINK_STRENGTH
             )
-            .strength(FORCE_LINK_STRENGTH)
         );
         charge_f: any = forceManyBody().strength(
             lambda (d: any) -> float {
@@ -1066,9 +1046,9 @@ def:pub NetworkPage(
             }
         );
         # Soft center when expanding — hard center yanks everything on click.
-        center_strength: float = 0.008 if had_prev else (
-            0.08 if activeTab == "all" else 0.18
-        );
+        center_strength: float = 0.008
+            if had_prev
+            else (0.08 if activeTab == "all" else 0.18);
         center_f: any = forceCenter(VIEW_W / 2.0, VIEW_H / 2.0).strength(
             center_strength
         );
@@ -1082,22 +1062,28 @@ def:pub NetworkPage(
                     node_radius(depth_i, kind_s)
                     + (
                         18.0
-                            if activeTab == "all"
-                                and (kind_s == "lens" or depth_i <= 1)
+                            if activeTab == "all" and (kind_s == "lens" or depth_i <= 1)
                             else 8.0
                     )
-                ) * z_spread;
+                )
+                    * z_spread;
             }
-        ).strength(0.55 if had_prev else 0.75);
+        ).strength(
+            0.55 if had_prev else 0.75
+        );
         boot_alpha: float = FORCE_ALPHA_SOFT if had_prev else FORCE_ALPHA;
         sim: any = (
-            forceSimulation(sim_nodes)
-            .force("link", link_f)
-            .force("charge", charge_f)
-            .force("center", center_f)
-            .force("collide", collide_f)
-            .velocityDecay(FORCE_VELOCITY_DECAY)
-            .on("tick", lambda { schedule_layout_tick(); })
+            forceSimulation(sim_nodes).force("link", link_f).force(
+                "charge", charge_f
+            ).force(
+                "center", center_f
+            ).force(
+                "collide", collide_f
+            ).velocityDecay(
+                FORCE_VELOCITY_DECAY
+            ).on(
+                "tick", lambda { schedule_layout_tick(); }
+            )
         );
         sim.alphaTarget(0.0).alpha(boot_alpha).restart();
         simRef.current = sim;
@@ -1152,10 +1138,7 @@ def:pub NetworkPage(
         p = panRef.current;
         px_any: any = p["x"];
         py_any: any = p["y"];
-        return [
-            (svg_x - float(px_any)) / z,
-            (svg_y - float(py_any)) / z
-        ];
+        return [(svg_x - float(px_any)) / z, (svg_y - float(py_any)) / z];
     }
 
     def zoom_spread(z: float) -> float {
@@ -1206,9 +1189,7 @@ def:pub NetworkPage(
                         kind_v: any = d["kind"];
                         depth_v: any = d["depth"];
                         kind_s: str = str(kind_v) if kind_v else "";
-                        depth_i: int = (
-                            int(depth_v) if depth_v is not None else 2
-                        );
+                        depth_i: int = int(depth_v) if depth_v is not None else 2;
                         base: float = FORCE_CHARGE * spread;
                         if activeTab == "all" {
                             base = FORCE_CHARGE * 1.55 * spread;
@@ -1229,9 +1210,7 @@ def:pub NetworkPage(
                     lambda (d: any) -> float {
                         depth_v: any = d["depth"];
                         kind_v: any = d["kind"];
-                        depth_i: int = (
-                            int(depth_v) if depth_v is not None else 2
-                        );
+                        depth_i: int = int(depth_v) if depth_v is not None else 2;
                         kind_s: str = str(kind_v) if kind_v else "";
                         pad: float = (
                             18.0
@@ -1245,8 +1224,7 @@ def:pub NetworkPage(
             }
             # Soft reopen — nodes drift apart instead of jumping.
             sim.alphaTarget(0.0).alpha(0.14).restart();
-        } except Exception {
-        }
+        } except Exception {}
         schedule_layout_tick();
     }
 
@@ -1297,8 +1275,7 @@ def:pub NetworkPage(
     def on_wheel_zoom(e: any) {
         try {
             e.preventDefault();
-        } except Exception {
-        }
+        } except Exception {}
         dy: float = float(e.deltaY) if e.deltaY is not None else 0.0;
         factor: float = Math.exp(0.0 - dy * ZOOM_WHEEL_STEP) as float;
         z_now: any = zoomRef.current;
@@ -1321,12 +1298,9 @@ def:pub NetworkPage(
             }
             handler: any = on_wheel_zoom;
             el_raw.addEventListener("wheel", handler, {"passive": False});
-            return lambda {
-                try {
-                    el_raw.removeEventListener("wheel", handler);
-                } except Exception {
-                }
-            };
+            return lambda { try {
+                el_raw.removeEventListener("wheel", handler);
+            } except Exception {}};
         },
         [loading, nodes]
     );
@@ -1340,8 +1314,7 @@ def:pub NetworkPage(
                 rect: any = el.getBoundingClientRect();
                 cx = float(rect.left) + float(rect.width) / 2.0;
                 cy = float(rect.top) + float(rect.height) / 2.0;
-            } except Exception {
-            }
+            } except Exception {}
         }
         z_now: any = zoomRef.current;
         cur: float = float(z_now) if z_now is not None else 1.0;
@@ -1358,8 +1331,7 @@ def:pub NetworkPage(
                 if d and d["x"] is not None and d["y"] is not None {
                     return [float(d["x"]), float(d["y"])];
                 }
-            } except Exception {
-            }
+            } except Exception {}
         }
         return [n.x, n.y];
     }
@@ -1379,15 +1351,13 @@ def:pub NetworkPage(
                     d["fx"] = None;
                     d["fy"] = None;
                 }
-            } except Exception {
-            }
+            } except Exception {}
         }
         sim: any = simRef.current;
         if sim {
             try {
                 sim.alphaTarget(0.0);
-            } except Exception {
-            }
+            } except Exception {}
         }
         sess = dragSession.current;
         sess["suppressClick"] = bool(nd["didDrag"]);
@@ -1413,8 +1383,7 @@ def:pub NetworkPage(
         try {
             pts[str(pid)] = {"x": float(e.clientX), "y": float(e.clientY)};
             pinch["pts"] = pts;
-        } except Exception {
-        }
+        } except Exception {}
         # Two fingers → pinch zoom (cancel pan).
         try {
             if len(list(pts.keys())) >= 2 {
@@ -1427,8 +1396,7 @@ def:pub NetworkPage(
                 dragging = False;
                 return;
             }
-        } except Exception {
-        }
+        } except Exception {}
         # Don't start a pan when the press is on a node — otherwise
         # setPointerCapture steals the click and the dossier never opens.
         t: any = e.target;
@@ -1439,8 +1407,7 @@ def:pub NetworkPage(
                     return;
                 }
             }
-        } except Exception {
-        }
+        } except Exception {}
         sess = dragSession.current;
         sess["active"] = True;
         sess["didPan"] = False;
@@ -1463,8 +1430,7 @@ def:pub NetworkPage(
                 pts[str(pid)] = {"x": float(e.clientX), "y": float(e.clientY)};
                 pinch["pts"] = pts;
             }
-        } except Exception {
-        }
+        } except Exception {}
         if pinch["active"] {
             dist = pinch_distance(pts);
             sd_any: any = pinch["startDist"];
@@ -1480,8 +1446,7 @@ def:pub NetworkPage(
                         mid_x = (float(a["x"]) + float(b["x"])) / 2.0;
                         mid_y = (float(a["y"]) + float(b["y"])) / 2.0;
                     }
-                } except Exception {
-                }
+                } except Exception {}
                 sz_any: any = pinch["startZoom"];
                 sz: float = float(sz_any) if sz_any is not None else 1.0;
                 apply_zoom_at(mid_x, mid_y, sz * (dist / start_d));
@@ -1544,8 +1509,7 @@ def:pub NetworkPage(
                 pinch["active"] = False;
                 pinch["startDist"] = 0.0;
             }
-        } except Exception {
-        }
+        } except Exception {}
         if nodeDrag.current["active"] {
             end_node_drag();
             return;
@@ -1563,8 +1527,7 @@ def:pub NetworkPage(
         if el and el.releasePointerCapture and ev2.pointerId is not None {
             try {
                 el.releasePointerCapture(ev2.pointerId);
-            } except Exception {
-            }
+            } except Exception {}
         }
     }
 
@@ -1648,7 +1611,7 @@ def:pub NetworkPage(
             i += 1;
         }
         if cut >= 0 {
-            trail = trail[: cut + 1];
+            trail = trail[:cut + 1];
         } elif key != "root" {
             trail = trail + [{"key": key, "name": name}];
         } else {
@@ -1744,10 +1707,13 @@ def:pub NetworkPage(
                 move_id: str = str(cur["id"]) if cur["id"] else "";
                 sx_any: any = cur["startX"];
                 sy_any: any = cur["startY"];
-                dx: float = float(ev.clientX) - float(sx_any if sx_any is not None else 0.0);
-                dy: float = float(ev.clientY) - float(sy_any if sy_any is not None else 0.0);
+                dx: float = float(ev.clientX)
+                    - float(sx_any if sx_any is not None else 0.0);
+                dy: float = float(ev.clientY)
+                    - float(sy_any if sy_any is not None else 0.0);
                 if not cur["didDrag"] {
-                    if abs(dx) < FORCE_DRAG_THRESHOLD and abs(dy) < FORCE_DRAG_THRESHOLD {
+                    if abs(dx) < FORCE_DRAG_THRESHOLD
+                        and abs(dy) < FORCE_DRAG_THRESHOLD {
                         return;
                     }
                     cur["didDrag"] = True;
@@ -1761,15 +1727,13 @@ def:pub NetworkPage(
                                 node0["fx"] = move_pt0[0];
                                 node0["fy"] = move_pt0[1];
                             }
-                        } except Exception {
-                        }
+                        } except Exception {}
                     }
                     sim0: any = simRef.current;
                     if sim0 {
                         try {
                             sim0.alphaTarget(FORCE_DRAG_ALPHA).restart();
-                        } except Exception {
-                        }
+                        } except Exception {}
                     }
                 }
                 move_pt = client_to_graph(float(ev.clientX), float(ev.clientY));
@@ -1781,19 +1745,16 @@ def:pub NetworkPage(
                             node_d["fx"] = move_pt[0];
                             node_d["fy"] = move_pt[1];
                         }
-                    } except Exception {
-                    }
+                    } except Exception {}
                 }
                 schedule_layout_tick();
             }
-
             def on_win_up(ev: any) {
                 window.removeEventListener("pointermove", on_win_move);
                 window.removeEventListener("pointerup", on_win_up);
                 window.removeEventListener("pointercancel", on_win_up);
                 end_node_drag();
             }
-
             window.addEventListener("pointermove", on_win_move);
             window.addEventListener("pointerup", on_win_up);
             window.addEventListener("pointercancel", on_win_up);
@@ -1833,9 +1794,7 @@ def:pub NetworkPage(
     def bind_lens_starter(key: str, name: str) -> Callable[[MouseEvent], None] {
         ck: str = key;
         cn: str = name;
-        return lambda (e: MouseEvent) {
-            switch_tab(ck, cn);
-        };
+        return lambda (e: MouseEvent) { switch_tab(ck, cn); };
     }
 
     def bind_search_pick(g: GNode) -> Callable[[MouseEvent], None] {
@@ -1882,7 +1841,7 @@ def:pub NetworkPage(
         }
     }
 
-    dateChips: list[dict] = future_date_chips(14);
+    dateChips: list[dict[str, any]] = future_date_chips(14);
     selectedDate: str = filters["date"] or "";
     dayValue: str = selectedDate if selectedDate else "any";
 
@@ -1998,8 +1957,7 @@ def:pub NetworkPage(
                                     )}
                                     strokeOpacity={eop}
                                     strokeWidth={(
-                                        (1.6 if eop > 0.5 else 0.85)
-                                        * glyph_scale()
+                                        (1.6 if eop > 0.5 else 0.85) * glyph_scale()
                                     )}
                                 />
                             }
@@ -2043,22 +2001,20 @@ def:pub NetworkPage(
                                             if n.kind == "lens"
                                             else (
                                                 ("#fafaf9" if dark else "#1c1917")
-                                                if is_focus
-                                                else ("#1c1917" if dark else "#ffffff")
+                                                    if is_focus
+                                                    else (
+                                                        "#1c1917" if dark else "#ffffff"
+                                                    )
                                             )
                                     )}
-                                    strokeWidth={(
-                                        (3.0 if is_focus else 2.0) * gs
-                                    )}
+                                    strokeWidth={((3.0 if is_focus else 2.0) * gs)}
                                 />
                                 <text
                                     y={(
                                         (
                                             40.0
                                                 if is_focus
-                                                else (
-                                                    26.0 if n.depth <= 1 else 20.0
-                                                )
+                                                else (26.0 if n.depth <= 1 else 20.0)
                                         )
                                         * gs
                                     )}
@@ -2069,16 +2025,14 @@ def:pub NetworkPage(
                                         (
                                             16.0
                                                 if is_focus
-                                                else (
-                                                    13.0 if n.depth <= 1 else 11.0
-                                                )
+                                                else (13.0 if n.depth <= 1 else 11.0)
                                         )
                                         * gs
                                     )}
                                     fill={(
                                         ("#fafaf9" if dark else "#1c1917")
-                                        if nop > 0.4
-                                        else ("#a8a29e" if dark else "#78716c")
+                                            if nop > 0.4
+                                            else ("#a8a29e" if dark else "#78716c")
                                     )}
                                     stroke={("#1c1917" if dark else "#ffffff")}
                                     strokeWidth={4.0 * gs}
@@ -2086,8 +2040,8 @@ def:pub NetworkPage(
                                 >
                                     {(
                                         n.name
-                                        if len(n.name) < 28
-                                        else n.name[:26] + "..."
+                                            if len(n.name) < 28
+                                            else n.name[:26] + "..."
                                     )}
                                 </text>
                             </g>
@@ -2157,7 +2111,9 @@ def:pub NetworkPage(
                                 <button
                                     key={s["key"]}
                                     type="button"
-                                    onClick={bind_lens_starter(str(s["key"]), str(s["name"]))}
+                                    onClick={bind_lens_starter(
+                                        str(s["key"]), str(s["name"])
+                                    )}
                                     className={"rounded-full border pt-1 pb-1 pl-3 pr-3 text-xs font-medium transition-colors "
                                         + (
                                             "border-foreground bg-foreground text-background"
@@ -2288,8 +2244,14 @@ def:pub NetworkPage(
                         aria-label="Browse path"
                     >
                         {for (i, step) in enumerate(trail) {
-                            <span key={str(step["key"]) + str(i)} className="flex items-center gap-1">
-                                {i > 0 and <span className="text-muted-foreground">{"/"}</span>}
+                            <span
+                                key={str(step["key"]) + str(i)}
+                                className="flex items-center gap-1"
+                            >
+                                {i > 0
+                                    and <span className="text-muted-foreground">
+                                        {"/"}
+                                    </span>}
                                 <button
                                     type="button"
                                     onClick={bind_trail_click(i)}
@@ -2318,14 +2280,12 @@ def:pub NetworkPage(
                         onClick={lambda (e: MouseEvent) { run_online_sync(True); }}
                         className="mt-1 w-full"
                     >
-                        {(
-                            "Syncing calendars…"
-                            if syncing
-                            else "Sync live events"
-                        )}
+                        {("Syncing calendars…" if syncing else "Sync live events")}
                     </Button>
                     {syncMsg
-                        and <p className="text-[11px] leading-snug text-muted-foreground">
+                        and <p
+                            className="text-[11px] leading-snug text-muted-foreground"
+                        >
                             {syncMsg}
                         </p>}
                 </div>

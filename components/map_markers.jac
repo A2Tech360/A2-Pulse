@@ -21,7 +21,7 @@ glob RIM_NORMAL: str = "#ffffff";
 glob DISC_ON_DARK: str = "#222220";
 glob DISC_ON_LIGHT: str = "#1c1917";
 
-glob DARK_MAP_STYLE: list[dict] = [
+glob DARK_MAP_STYLE: list[dict[str, any]] = [
     {"elementType": "geometry", "stylers": [{"color": "#232322"}]},
     {"elementType": "labels.icon", "stylers": [{"visibility": "off"}]},
     {"elementType": "labels.text.fill", "stylers": [{"color": "#9a9a96"}]},
@@ -37,7 +37,7 @@ glob DARK_MAP_STYLE: list[dict] = [
     {"featureType": "water", "elementType": "geometry", "stylers": [{"color": "#1a1f28"}]}
 ];
 
-glob LIGHT_MAP_STYLE: list[dict] = [
+glob LIGHT_MAP_STYLE: list[dict[str, any]] = [
     {"elementType": "geometry", "stylers": [{"color": "#f5f5f4"}]},
     {"elementType": "labels.text.fill", "stylers": [{"color": "#78716c"}]},
     {"elementType": "labels.text.stroke", "stylers": [{"color": "#ffffff"}]},
@@ -71,7 +71,7 @@ def emoji_for(kind: str) -> str {
     }
 }
 
-def:pub map_style_for(dark: bool) -> list[dict] {
+def:pub map_style_for(dark: bool) -> list[dict[str, any]] {
     return DARK_MAP_STYLE if dark else LIGHT_MAP_STYLE;
 }
 
@@ -153,7 +153,7 @@ def:pub pin_data_url(
 
 def:pub maps_marker_icon(
     gm: any, kind: str, focused: bool = False, dark: bool = True
-) -> dict {
+) -> dict[str, any] {
     if kind == "campus" {
         return {
             "url": pin_data_url(kind, False, dark),

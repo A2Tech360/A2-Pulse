@@ -7,7 +7,7 @@ glob SRC_RIDE: str = "https://www.theride.org/alerts";
 glob SRC_LEG: str = "https://a2gov.legistar.com/Calendar.aspx";
 glob SRC_ROAD: str = "https://www.a2gov.org/road-closures";
 
-glob SOURCES: list[dict] = [
+glob SOURCES: list[dict[str, any]] = [
     {"key": "src-um", "name": "Happening @ Michigan", "url": SRC_UM},
     {"key": "src-eb", "name": "Eventbrite", "url": SRC_EB},
     {"key": "src-city", "name": "City of Ann Arbor", "url": SRC_CITY},
@@ -21,7 +21,7 @@ glob CATEGORIES: list[str] = [
     "outdoor", "civic", "networking", "nightlife", "comedy"
 ];
 
-glob PLACES: list[dict] = [
+glob PLACES: list[dict[str, any]] = [
     {"key": "pl-central", "name": "Central Campus", "lat": 42.2770, "lng": -83.7382},
     {"key": "pl-north", "name": "North Campus", "lat": 42.2920, "lng": -83.7160},
     {"key": "pl-main", "name": "Main Street", "lat": 42.2800, "lng": -83.7483},
@@ -32,7 +32,7 @@ glob PLACES: list[dict] = [
     {"key": "pl-ypsi", "name": "Ypsilanti", "lat": 42.2411, "lng": -83.6130}
 ];
 
-glob VENUES: list[dict] = [
+glob VENUES: list[dict[str, any]] = [
     {"key": "v-ark", "name": "The Ark", "address": "316 S Main St", "lat": 42.2793, "lng": -83.7485, "place": "pl-main"},
     {"key": "v-hill", "name": "Hill Auditorium", "address": "825 N University Ave", "lat": 42.2791, "lng": -83.7383, "place": "pl-central"},
     {"key": "v-union", "name": "Michigan Union", "address": "530 S State St", "lat": 42.2750, "lng": -83.7416, "place": "pl-state"},
@@ -53,7 +53,7 @@ glob VENUES: list[dict] = [
     {"key": "v-freighthouse", "name": "Ypsi Freighthouse", "address": "100 Market Pl, Ypsilanti", "lat": 42.2448, "lng": -83.6115, "place": "pl-ypsi"}
 ];
 
-glob ORGANIZERS: list[dict] = [
+glob ORGANIZERS: list[dict[str, any]] = [
     {"key": "o-ums", "name": "UMS", "org_type": "nonprofit", "venue": "v-hill"},
     {"key": "o-jazz", "name": "U-M Jazz Collective", "org_type": "club", "venue": "v-union"},
     {"key": "o-hike", "name": "Michigan Hiking Club", "org_type": "club", "venue": "v-union"},
@@ -70,7 +70,7 @@ glob ORGANIZERS: list[dict] = [
 ];
 
 # day: 0 = Monday ... 6 = Sunday of the current week
-glob EVENTS: list[dict] = [
+glob EVENTS: list[dict[str, any]] = [
     {"key": "e-jazz-fri", "name": "Free Jazz Night", "desc": "Student combos and local players trade sets. Walk-ins welcome.", "venue": "v-llama", "org": "o-jazz", "cats": ["music", "social"], "day": 4, "time": "Fri 8:00 PM", "price": 0.0, "src": "src-um", "related": ["e-ark-folk"]},
     {"key": "e-ark-folk", "name": "Folk Songwriters Round", "desc": "Four Michigan songwriters share the stage in the round.", "venue": "v-ark", "org": "o-msaa", "cats": ["music", "arts"], "day": 5, "time": "Sat 7:30 PM", "price": 15.0, "src": "src-eb", "related": []},
     {"key": "e-ums-sym", "name": "UMS Symphony: Rachmaninoff 2", "desc": "Full orchestra with guest pianist at Hill Auditorium.", "venue": "v-hill", "org": "o-ums", "cats": ["music", "arts"], "day": 6, "time": "Sun 4:00 PM", "price": 12.0, "src": "src-um", "related": []},
@@ -90,7 +90,7 @@ glob EVENTS: list[dict] = [
     {"key": "e-mich-comedy", "name": "Michigan Theater Comedy Night", "desc": "Regional comics in the historic downtown theater.", "venue": "v-michtheater", "org": "o-michtheater", "cats": ["comedy", "arts"], "day": 5, "time": "Sat 8:00 PM", "price": 18.0, "src": "src-eb", "related": []}
 ];
 
-glob ALERTS: list[dict] = [
+glob ALERTS: list[dict[str, any]] = [
     {"key": "a-plymouth", "name": "Plymouth Rd lane closure", "desc": "Eastbound right lane closed for water main work between Huron Pkwy and Nixon.", "alert_type": "closure", "when": "Wed to Fri, 7 AM to 5 PM", "day": 2, "src": "src-road", "org": "o-city", "cats": ["community"], "places": ["pl-plymouth", "pl-north"], "lat": 42.3010, "lng": -83.7100, "path": [[42.2955, -83.7210], [42.2990, -83.7150], [42.3015, -83.7090], [42.3040, -83.7010]]},
     {"key": "a-main-work", "name": "Main St road work", "desc": "Main St narrowed to one lane between Washington and William; loading zones moved.", "alert_type": "closure", "when": "Mon to Thu, 6 AM to 3 PM", "day": 0, "src": "src-road", "org": "o-city", "cats": ["community"], "places": ["pl-main"], "lat": 42.2795, "lng": -83.7483, "path": [[42.2812, -83.7483], [42.2795, -83.7484], [42.2778, -83.7485]]},
     {"key": "a-route4", "name": "TheRide Route 4 detour", "desc": "Route 4 detours off Washtenaw Ave via Packard for utility work.", "alert_type": "detour", "when": "Thu all day", "day": 3, "src": "src-ride", "org": "o-ride", "cats": ["community"], "places": ["pl-washtenaw", "pl-central"], "lat": 42.2735, "lng": -83.7290, "path": [[42.2760, -83.7360], [42.2742, -83.7300], [42.2722, -83.7230], [42.2700, -83.7160]]},
@@ -98,13 +98,13 @@ glob ALERTS: list[dict] = [
     {"key": "a-bus-north", "name": "Bursley-Baits bus reroute", "desc": "U-M buses skip the Pierpont stop during event setup.", "alert_type": "detour", "when": "Sat afternoon", "day": 5, "src": "src-ride", "org": "o-ride", "cats": ["community"], "places": ["pl-north"], "lat": 42.2915, "lng": -83.7180, "path": [[42.2930, -83.7210], [42.2913, -83.7171], [42.2900, -83.7120]]}
 ];
 
-glob CIVIC: list[dict] = [
+glob CIVIC: list[dict[str, any]] = [
     {"key": "c-housing", "name": "Council vote: housing density near campus", "desc": "City Council considers rezoning to allow more housing along State and Packard.", "when": "Mon 7:00 PM, public comment sign-up by Mon noon", "day": 0, "src": "src-leg", "org": "o-city", "cats": ["civic", "community"], "places": ["pl-central", "pl-state"], "lat": 42.2820, "lng": -83.7460},
     {"key": "c-seating", "name": "Outdoor seating ordinance", "desc": "Proposed year-round sidewalk seating rules for downtown restaurants and shops.", "when": "Comment deadline Tue 5:00 PM", "day": 1, "src": "src-leg", "org": "o-city", "cats": ["civic", "food"], "places": ["pl-main", "pl-kerry"], "lat": 42.2805, "lng": -83.7478},
     {"key": "c-bikelanes", "name": "Plymouth Rd protected bike lane plan", "desc": "Transportation Commission hearing on a protected bike lane from North Campus to downtown.", "when": "Wed 6:30 PM hearing", "day": 2, "src": "src-leg", "org": "o-city", "cats": ["civic", "outdoor"], "places": ["pl-plymouth", "pl-north"], "lat": 42.2990, "lng": -83.7140}
 ];
 
-glob PERSONAS: list[dict] = [
+glob PERSONAS: list[dict[str, any]] = [
     {"persona": "student", "name": "Jordan, U-M junior", "home": "pl-north", "commute": "bike", "via": ["pl-north", "pl-plymouth", "pl-central"], "interests": ["music", "social", "networking", "food"], "follows": ["o-jazz", "o-career"]},
     {"persona": "shop", "name": "Maya, Main St shop owner", "home": "pl-main", "commute": "car", "via": ["pl-main", "pl-kerry"], "interests": ["arts", "community", "civic", "food"], "follows": ["o-msaa", "o-city"]},
     {"persona": "custom", "name": "You", "home": "pl-central", "commute": "walk", "via": ["pl-central"], "interests": ["music", "outdoor"], "follows": []}

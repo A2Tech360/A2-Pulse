@@ -5,7 +5,7 @@ import from services.event_dates { event_matches_date, parse_iso_date }
 glob KIND_TOGGLES: list[str] = ["event", "organizer", "alert", "civic"];
 glob MAX_NODES: int = 90;
 glob MAX_BROWSE_CHILDREN: int = 24;
-glob BROWSE_LENSES: list[dict] = [
+glob BROWSE_LENSES: list[dict[str, any]] = [
     {
         "key": "lens-places",
         "name": "Places",
@@ -1224,7 +1224,7 @@ impl Feedback.adjust {
 }
 
 # ---------------------------------------------------------------- functions
-impl update_custom_profile(home_key: str, commute: str, interests: list[str]) -> dict {
+impl update_custom_profile(home_key: str, commute: str, interests: list[str]) -> dict[str, any] {
     _ensure_seed();
     profs = [root -->][?:UserProfile][?persona == "custom"];
     if len(profs) == 0 {
@@ -1272,9 +1272,9 @@ impl converse_query(text: str, prior: FilterSpec) -> FilterSpec {
     return _heuristic_filters(text, prior);
 }
 
-impl list_personas() -> list[dict] {
+impl list_personas() -> list[dict[str, any]] {
     _ensure_seed();
-    out: list[dict] = [];
+    out: list[dict[str, any]] = [];
     for p in [root -->][?:UserProfile] {
         homes = [p ->:LivesAt:->][?:Place];
         out.append({
@@ -1289,7 +1289,7 @@ impl list_personas() -> list[dict] {
     return out;
 }
 
-def _nominatim_search(query: str, limit: int) -> list[dict] {
+def _nominatim_search(query: str, limit: int) -> list[dict[str, any]] {
     q = query.strip();
     if len(q) < 2 {
         return [];
@@ -1329,7 +1329,7 @@ def _nominatim_search(query: str, limit: int) -> list[dict] {
     return [];
 }
 
-def _split_place_label(display: str) -> dict {
+def _split_place_label(display: str) -> dict[str, any] {
     parts = display.split(",");
     if len(parts) == 0 {
         return {"title": display, "sub": ""};
@@ -1403,10 +1403,10 @@ glob TTS_DEFAULT_VOICE: str = "JBFqnCBsd6RMkjVDRZzb";
 glob TTS_DEFAULT_MODEL: str = "eleven_flash_v2_5";
 glob TTS_MAX_CHARS: int = 2500;
 glob _tts_cache: dict[str, str] = {};
-glob _voices_cache: list[dict] = [];
+glob _voices_cache: list[dict[str, any]] = [];
 
 # Premade ElevenLabs voices, used when the key cannot list voices (no voices_read).
-glob PREMADE_VOICES: list[dict] = [
+glob PREMADE_VOICES: list[dict[str, any]] = [
     {"id": "JBFqnCBsd6RMkjVDRZzb", "name": "George", "desc": "Warm British narrator"},
     {"id": "nPczCjzI2devNBz1zQrb", "name": "Brian", "desc": "Deep, resonant American"},
     {"id": "onwK4e9ZLuTAKqWW03F9", "name": "Daniel", "desc": "Authoritative British newsreader"},
@@ -1423,7 +1423,7 @@ glob PREMADE_VOICES: list[dict] = [
     {"id": "pFZP5JQG7iQjIQuC4Bku", "name": "Lily", "desc": "Velvety British"}
 ];
 
-impl speak_brief(text: str, voice_id: str = "") -> dict {
+impl speak_brief(text: str, voice_id: str = "") -> dict[str, any] {
     key = os.environ.get("ELEVENLABS_API_KEY", "").strip();
     if not key {
         return {"audio": "", "error": "ELEVENLABS_API_KEY is not set"};
@@ -1462,7 +1462,7 @@ impl speak_brief(text: str, voice_id: str = "") -> dict {
     return {"audio": url, "error": ""};
 }
 
-impl list_voices -> dict {
+impl list_voices -> dict[str, any] {
     if _voices_cache {
         return {"voices": _voices_cache, "source": "account"};
     }
@@ -1476,7 +1476,7 @@ impl list_voices -> dict {
             resp: any = urlopen(req, timeout=20);
             data: any = json.loads(resp.read().decode("utf-8"));
             resp.close();
-            out: list[dict] = [];
+            out: list[dict[str, any]] = [];
             raw: list[any] = data.get("voices", []);
             for v in raw {
                 labels: any = v.get("labels") or {};
@@ -1557,7 +1557,7 @@ impl map_pin_overview(node_id: str) -> MapOverview {
 # ---------------------------------------------------------------- dossier images
 glob _IMG_UA: str = "A2Pulse/1.0 (Ann Arbor local graph; educational demo)";
 
-def _http_json(url: str, timeout: float = 8.0) -> dict {
+def _http_json(url: str, timeout: float = 8.0) -> dict[str, any] {
     req = Request(url, headers={"User-Agent": _IMG_UA, "Accept": "application/json"});
     try {
         resp: any = urlopen(req, timeout=timeout);
@@ -1565,7 +1565,7 @@ def _http_json(url: str, timeout: float = 8.0) -> dict {
         resp.close();
         parsed: any = json.loads(raw.decode("utf-8", "replace"));
         if isinstance(parsed, dict) {
-            return parsed as dict;
+            return parsed as dict[str, any];
         }
     } except Exception {
     }

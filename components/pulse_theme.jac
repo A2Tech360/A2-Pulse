@@ -5,7 +5,7 @@ glob ALL_CATEGORIES: list[str] = [
     "outdoor", "civic", "networking"
 ];
 
-glob KIND_OPTIONS: list[dict] = [
+glob KIND_OPTIONS: list[dict[str, any]] = [
     {"value": "event", "label": "Events"},
     {"value": "organizer", "label": "Clubs"},
     {"value": "alert", "label": "Closures"},
@@ -44,7 +44,7 @@ def:pub all_categories() -> list[str] {
     return ALL_CATEGORIES;
 }
 
-def:pub kind_options() -> list[dict] {
+def:pub kind_options() -> list[dict[str, any]] {
     return KIND_OPTIONS;
 }
 
@@ -56,7 +56,7 @@ def:pub campus_lng() -> float {
     return CAMPUS_LNG;
 }
 
-def:pub default_filters() -> dict {
+def:pub default_filters() -> dict[str, any] {
     return {
         "categories": [],
         "kinds": [],
@@ -80,8 +80,8 @@ def _pad2(n: int) -> str {
 }
 
 """Upcoming calendar chips for the Network day bar (today + next N days)."""
-def:pub future_date_chips(days: int = 14) -> list[dict] {
-    out: list[dict] = [];
+def:pub future_date_chips(days: int = 14) -> list[dict[str, any]] {
+    out: list[dict[str, any]] = [];
     now: any = new(Date);
     i: int = 0;
     while i < days {

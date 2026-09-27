@@ -7,12 +7,7 @@ import from .ui.button { Button }
 import from .FilterBar { FilterBar }
 import from .map_markers { sticker_img_url }
 import from .pulse_theme { campus_lat, campus_lng }
-import from .MapChrome {
-    MapAddressSearch,
-    MapLegend,
-    MapKeyMissing,
-    MapLoading
-}
+import from .MapChrome { MapAddressSearch, MapLegend, MapKeyMissing, MapLoading }
 import from .google_maps {
     load_google_maps,
     create_pulse_map,
@@ -23,10 +18,16 @@ import from .google_maps {
     place_search_pin,
     clear_search_pin
 }
-sv import from ..services.pulse { MapSnapshot, MapItem, maps_config, map_pin_overview, MapOverview }
+import from ..services.pulse {
+    MapSnapshot,
+    MapItem,
+    maps_config,
+    map_pin_overview,
+    MapOverview
+}
 
 def:pub MapPage(
-    filters: dict, onFilters: Callable[[dict], None], dark: bool = True
+    filters: dict[str, any], onFilters: Callable[[dict[str, any]], None], dark: bool = True
 ) -> JsxElement {
     has items: list[MapItem] = [],
         loading: bool = True,
@@ -40,7 +41,7 @@ def:pub MapPage(
         overlaysRef: Ref[any] = Ref(None),
         infoRef: Ref[any] = Ref(None),
         searchPinRef: Ref[any] = Ref(None),
-        pinOverviews: dict = {};
+        pinOverviews: dict[str, any] = {};
 
     async can with entry {
         cfg = await maps_config();
@@ -80,11 +81,11 @@ def:pub MapPage(
         }
         try {
             ov: MapOverview = await map_pin_overview(id);
-            nxt: dict = {**pinOverviews};
+            nxt: dict[str, any] = {** pinOverviews};
             nxt[id] = {"blurb": ov.blurb, "tip": ov.tip, "headline": ov.headline};
             pinOverviews = nxt;
         } except Exception {
-            nxt2: dict = {**pinOverviews};
+            nxt2: dict[str, any] = {** pinOverviews};
             nxt2[id] = {"blurb": "", "tip": "", "headline": ""};
             pinOverviews = nxt2;
         }
@@ -152,13 +153,7 @@ def:pub MapPage(
     def go_to_place(lat: float, lng: float, label: str) {
         focusId = "";
         searchPinRef.current = place_search_pin(
-            mapRef.current,
-            infoRef.current,
-            dark,
-            lat,
-            lng,
-            label,
-            searchPinRef.current
+            mapRef.current, infoRef.current, dark, lat, lng, label, searchPinRef.current
         );
     }
 
@@ -174,8 +169,7 @@ def:pub MapPage(
                 <div ref={mapEl} className="absolute inset-0"/>
                 {keyChecked and not apiKey and <MapKeyMissing/>}
                 {apiKey and not mapsReady and <MapLoading/>}
-                {mapsReady
-                    and <MapAddressSearch dark={dark} onGoTo={go_to_place}/>}
+                {mapsReady and <MapAddressSearch dark={dark} onGoTo={go_to_place}/>}
                 {mapsReady and <MapLegend dark={dark}/>}
             </div>
             <aside
@@ -197,11 +191,7 @@ def:pub MapPage(
                     {error
                         and <div className="flex items-center gap-3">
                             <p className="text-sm text-destructive">{error}</p>
-                            <Button
-                                variant="outline"
-                                size="sm"
-                                onClick={retry_load}
-                            >
+                            <Button variant="outline" size="sm" onClick={retry_load}>
                                 {"Retry"}
                             </Button>
                         </div>}
@@ -239,10 +229,8 @@ def:pub MapPage(
                                 key={it.id}
                                 type="button"
                                 onClick={lambda (e: MouseEvent) { focus_item(it); }}
-                                className={
-                                    "flex items-start gap-3 rounded-md pt-2.5 pb-2.5 pl-2 pr-2 text-left text-foreground transition-colors hover:bg-muted "
-                                    + ("bg-muted" if it.id == focusId else "")
-                                }
+                                className={"flex items-start gap-3 rounded-md pt-2.5 pb-2.5 pl-2 pr-2 text-left text-foreground transition-colors hover:bg-muted "
+                                    + ("bg-muted" if it.id == focusId else "")}
                             >
                                 <img
                                     src={sticker_img_url(it.kind, dark)}
@@ -253,12 +241,16 @@ def:pub MapPage(
                                     <span className="truncate text-sm font-medium">
                                         {it.name}
                                     </span>
-                                    <span className="truncate text-xs text-muted-foreground">
+                                    <span
+                                        className="truncate text-xs text-muted-foreground"
+                                    >
                                         {it.when
                                             + ((" · " + it.venue) if it.venue else "")}
                                     </span>
                                 </span>
-                                <span className="shrink-0 text-xs tabular-nums text-muted-foreground">
+                                <span
+                                    className="shrink-0 text-xs tabular-nums text-muted-foreground"
+                                >
                                     {f"{it.dist:.1f} mi"}
                                 </span>
                             </button>

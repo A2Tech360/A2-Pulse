@@ -2,8 +2,7 @@
 name = "empty"
 version = "0.0.1"
 description = "Empty Jac project - start from scratch"
-entry-point = "main.jac"
-kind = "web-app"
+
 
 [byllm]
 [byllm.model]
@@ -92,6 +91,11 @@ description = 'Jac IDE snapshot for a2-pulse-map'
 [jachammer]
 project_id = "prj_eb329498b4fd4928b849e7008b3d002d"
 
-[scale]
-[scale.microservices]
-enabled = false
+[apps.empty]
+entry-point = "main"
+kind = "web-app"
+
+[apps.pulse]
+kind = "service"
+entry-point = "services.pulse"
+route = "/pulse"

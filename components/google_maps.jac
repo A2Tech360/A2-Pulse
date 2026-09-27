@@ -1,13 +1,8 @@
 """Google Maps loader + overlay helpers — all Jac, thin browser interop."""
 
-import from .map_markers {
-    maps_marker_icon,
-    map_style_for,
-    kind_emoji,
-    map_bg_color
-}
+import from .map_markers { maps_marker_icon, map_style_for, kind_emoji, map_bg_color }
 import from .pulse_theme { kind_color, kind_label, campus_lat, campus_lng }
-sv import from ..services.pulse { MapItem }
+import from ..services.pulse { MapItem }
 
 def:pub load_google_maps(key: str, on_ready: Callable[[], None]) {
     w: any = window;
@@ -55,11 +50,7 @@ def:pub map_popup_html(
     muted = "#a8a29e" if dark else "#57534e";
     body = "#d6d3d1" if dark else "#292524";
     link = "#f5b942" if dark else "#b45309";
-    shadow = (
-        "0 10px 28px rgba(0,0,0,0.45)"
-        if dark
-        else "0 10px 28px rgba(0,0,0,0.28)"
-    );
+    shadow = "0 10px 28px rgba(0,0,0,0.45)" if dark else "0 10px 28px rgba(0,0,0,0.28)";
     return (
         "<div style='max-width:280px;font-family:Geist Variable,system-ui,sans-serif;"
         + "background:"
@@ -87,30 +78,30 @@ def:pub map_popup_html(
         + "</div>"
         + (
             "<div style='font-size:12px;color:"
-            + muted
-            + ";margin-top:4px'>"
-            + when_bits
-            + "</div>"
-            if when_bits
-            else ""
+                + muted
+                + ";margin-top:4px'>"
+                + when_bits
+                + "</div>"
+                if when_bits
+                else ""
         )
         + (
             "<div style='font-size:12px;color:"
-            + body
-            + ";margin-top:8px;line-height:1.45'>"
-            + body_text
-            + "</div>"
-            if body_text
-            else ""
+                + body
+                + ";margin-top:8px;line-height:1.45'>"
+                + body_text
+                + "</div>"
+                if body_text
+                else ""
         )
         + (
             "<div style='font-size:11px;color:"
-            + muted
-            + ";margin-top:8px;font-weight:600'>"
-            + tip_text
-            + "</div>"
-            if tip_text
-            else ""
+                + muted
+                + ";margin-top:8px;font-weight:600'>"
+                + tip_text
+                + "</div>"
+                if tip_text
+                else ""
         )
         + "<div style='margin-top:10px'>"
         + "<a href='"
@@ -156,7 +147,7 @@ def bind_line_click(line: any, info: any, map_obj: any, html: str) {
     );
 }
 
-def:pub create_pulse_map(el: any, dark: bool) -> dict {
+def:pub create_pulse_map(el: any, dark: bool) -> dict[str, any] {
     w: any = window;
     gm: any = w.google.maps;
     map_obj: any = new(
@@ -173,7 +164,9 @@ def:pub create_pulse_map(el: any, dark: bool) -> dict {
             "backgroundColor": map_bg_color(dark)
         }
     );
-    info: any = new(gm.InfoWindow, {"maxWidth": 280, "pixelOffset": new(gm.Size, 0, -8)});
+    info: any = new(
+        gm.InfoWindow, {"maxWidth": 280, "pixelOffset": new(gm.Size, 0, -8)}
+    );
     set_map_theme_class(el, dark);
     return {"map": map_obj, "info": info, "gm": gm};
 }
@@ -193,10 +186,7 @@ def:pub apply_map_theme(map_obj: any, dark: bool, map_el: any = None) {
         return;
     }
     map_obj.setOptions(
-        {
-            "styles": map_style_for(dark),
-            "backgroundColor": map_bg_color(dark)
-        }
+        {"styles": map_style_for(dark), "backgroundColor": map_bg_color(dark)}
     );
     if map_el {
         set_map_theme_class(map_el, dark);
@@ -217,7 +207,7 @@ def:pub sync_map_overlays(
     distance_mi: float,
     dark: bool,
     on_focus: Callable[[str], None],
-    overviews: dict = {}
+    overviews: dict[str, any] = {}
 ) -> list[any] {
     if not map_obj {
         return [];
@@ -320,9 +310,7 @@ def:pub pan_to_item(map_obj: any, lat: float, lng: float) {
 }
 
 def nominatim_geocode(
-    query: str,
-    on_ok: Callable[[dict], None],
-    on_err: Callable[[str], None]
+    query: str, on_ok: Callable[[dict[str, any]], None], on_err: Callable[[str], None]
 ) {
     w: any = window;
     q = query.strip();
@@ -336,14 +324,7 @@ def nominatim_geocode(
     );
     ok_cb = on_ok;
     err_cb = on_err;
-    fetch(
-        url,
-        {
-            "headers": {
-                "Accept": "application/json"
-            }
-        }
-    ).then(
+    fetch(url, {"headers": {"Accept": "application/json"}}).then(
         lambda (resp: any) {
             if not resp.ok {
                 err_cb("Could not look up that address.");
@@ -370,13 +351,11 @@ def nominatim_geocode(
             }
         }
     ).catch(
-        lambda (e: any) {
-            err_cb("Could not look up that address.");
-        }
+        lambda (e: any) { err_cb("Could not look up that address."); }
     );
 }
 
-def split_place_label(display: str) -> dict {
+def split_place_label(display: str) -> dict[str, any] {
     parts = display.split(",");
     if len(parts) == 0 {
         return {"title": display, "sub": ""};
@@ -394,10 +373,7 @@ def split_place_label(display: str) -> dict {
     return {"title": title, "sub": ", ".join(rest)};
 }
 
-def:pub suggest_places(
-    query: str,
-    on_ok: Callable[[list[dict]], None]
-) {
+def:pub suggest_places(query: str, on_ok: Callable[[list[dict[str, any]]], None]) {
     w: any = window;
     q = query.strip();
     ok_cb = on_ok;
@@ -417,14 +393,7 @@ def:pub suggest_places(
         + "&viewbox=-83.90,42.36,-83.62,42.20&bounded=0&q="
         + w.encodeURIComponent(bias)
     );
-    fetch(
-        url,
-        {
-            "headers": {
-                "Accept": "application/json"
-            }
-        }
-    ).then(
+    fetch(url, {"headers": {"Accept": "application/json"}}).then(
         lambda (resp: any) {
             if not resp.ok {
                 return [];
@@ -433,7 +402,7 @@ def:pub suggest_places(
         }
     ).then(
         lambda (data: any) {
-            out: list[dict] = [];
+            out: list[dict[str, any]] = [];
             if not data {
                 ok_cb(out);
                 return;
@@ -458,16 +427,12 @@ def:pub suggest_places(
             ok_cb(out);
         }
     ).catch(
-        lambda (e: any) {
-            ok_cb([]);
-        }
+        lambda (e: any) { ok_cb([]); }
     );
 }
 
 def:pub geocode_query(
-    query: str,
-    on_ok: Callable[[dict], None],
-    on_err: Callable[[str], None]
+    query: str, on_ok: Callable[[dict[str, any]], None], on_err: Callable[[str], None]
 ) {
     w: any = window;
     q = query.strip();
@@ -487,27 +452,17 @@ def:pub geocode_query(
     ne = new(gm.LatLng, campus_lat() + 0.18, campus_lng() + 0.22);
     bounds = new(gm.LatLngBounds, sw, ne);
     geo.geocode(
-        {
-            "address": q,
-            "bounds": bounds,
-            "region": "us"
-        },
-        lambda (results: any, status: any) {
-            if status == "OK" and results and len(results) > 0 {
-                r: any = results[0];
-                loc: any = r.geometry.location;
-                ok_cb(
-                    {
-                        "lat": loc.lat(),
-                        "lng": loc.lng(),
-                        "label": r.formatted_address
-                    }
-                );
-            } else {
-                # Geocoding API often disabled on Maps-only keys — fall back.
-                nominatim_geocode(q, ok_cb, err_cb);
-            }
-        }
+        {"address": q, "bounds": bounds, "region": "us"},
+        lambda (results: any, status: any) { if status == "OK"
+            and results
+            and len(results) > 0 {
+            r: any = results[0];
+            loc: any = r.geometry.location;
+            ok_cb({"lat": loc.lat(), "lng": loc.lng(), "label": r.formatted_address});
+        } else {
+            # Geocoding API often disabled on Maps-only keys — fall back.
+            nominatim_geocode(q, ok_cb, err_cb);
+        } }
     );
 }
 
@@ -532,13 +487,7 @@ def search_pin_html(label: str, dark: bool) -> str {
 }
 
 def:pub place_search_pin(
-    map_obj: any,
-    info: any,
-    dark: bool,
-    lat: float,
-    lng: float,
-    label: str,
-    prev: any
+    map_obj: any, info: any, dark: bool, lat: float, lng: float, label: str, prev: any
 ) -> any {
     if not map_obj {
         return None;

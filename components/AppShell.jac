@@ -13,7 +13,7 @@ import from .NetworkPage { NetworkPage }
 import from .MapPage { MapPage }
 import from .MondayPage { MondayPage }
 
-glob NAV_ITEMS: list[dict] = [
+glob NAV_ITEMS: list[dict[str, any]] = [
     {"label": "Network", "to": "/network"},
     {"label": "Map", "to": "/map"},
     {"label": "My Monday", "to": "/monday"}
@@ -23,7 +23,7 @@ glob DAYS: list[str] = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", 
 glob MONTHS: list[str] = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
 
 def:pub AppShell() -> JsxElement {
-    has filters: dict = default_filters(),
+    has filters: dict[str, any] = default_filters(),
         dark: bool = read_dark_pref(True);
 
     path = useLocation().pathname;
@@ -41,7 +41,7 @@ def:pub AppShell() -> JsxElement {
         write_dark_pref(dark);
     }
 
-    def set_filters(nxt: dict) {
+    def set_filters(nxt: dict[str, any]) {
         filters = nxt;
     }
 

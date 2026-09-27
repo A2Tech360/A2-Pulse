@@ -9,7 +9,7 @@ import from services.pulse {
     Snapshot, GNode, GEdge, MapItem, Dossier, Brief, BriefItem, FilterSpec,
     PlaceSuggestion, MapOverview, DossierMedia, DossierImage
 }
-import from services.event_ingest { sync_online_events, list_live_events, SyncReport }
+import from services.pulse { sync_online_events, list_live_events, SyncReport }
 
 import ".styles.global.css";
 import from "@jac/runtime" { Router }

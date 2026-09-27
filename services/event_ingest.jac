@@ -13,7 +13,8 @@ import from services.pulse {
     TaggedAs,
     SourcedFrom,
     Near,
-    seed_pulse
+    seed_pulse,
+    SyncReport
 }
 
 # ---------------------------------------------------------------- transfer shapes
@@ -29,17 +30,6 @@ obj RawEvent {
         day: int = -1;
 }
 
-obj SyncReport {
-    has ok: bool = True,
-        fetched: int = 0,
-        created: int = 0,
-        updated: int = 0,
-        skipped: int = 0,
-        sources: list[str] = [],
-        errors: list[str] = [],
-        message: str = "";
-}
-
 # ---------------------------------------------------------------- LLM extract (optional)
 def llm_extract_events(
     source_name: str, page_text: str, allowed_categories: list[str]
@@ -49,10 +39,10 @@ sem llm_extract_events.source_name = "Human-readable name of the calendar site."
 sem llm_extract_events.page_text = "Fetched page text (HTML tags mostly stripped).";
 sem llm_extract_events.allowed_categories = "Only these category slugs may appear in categories.";
 
-# ---------------------------------------------------------------- public API
+# ---------------------------------------------------------------- API (served through services.pulse)
 """Pull public calendars and merge events into the living graph.
 force=True ignores the short cooldown between automatic syncs."""
-def:pub sync_online_events(force: bool = False) -> SyncReport;
+def sync_online_events(force: bool = False) -> SyncReport;
 
 """Return recently ingested live events (keys starting with live-)."""
-def:pub list_live_events(limit: int = 40) -> list[dict];
+def list_live_events(limit: int = 40) -> list[dict[str, any]];

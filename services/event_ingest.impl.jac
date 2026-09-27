@@ -15,7 +15,7 @@ import from services.event_parse {
     clip
 }
 
-glob INGEST_FEEDS: list[dict] = [
+glob INGEST_FEEDS: list[dict[str, any]] = [
     {
         "key": "src-ark-live",
         "name": "The Ark",
@@ -114,7 +114,7 @@ def _hub -> Hub {
 }
 
 def _http_get(url: str, accept: str = "") -> str {
-    headers: dict = {
+    headers: dict[str, any] = {
         "User-Agent": "A2Pulse/1.0 (+https://github.com/muriloapparecido/A2-Pulse; event sync)",
         "Accept": (
             accept
@@ -228,7 +228,7 @@ def _ensure_venue(hub: Hub, hint: str) -> Venue {
     return v;
 }
 
-def _dict_to_raw(d: dict) -> RawEvent {
+def _dict_to_raw(d: dict[str, any]) -> RawEvent {
     cats_any: any = d.get("categories", []);
     cats: list[str] = [];
     if cats_any {
@@ -512,9 +512,9 @@ impl sync_online_events(force: bool) -> SyncReport {
     return rep;
 }
 
-impl list_live_events(limit: int) -> list[dict] {
+impl list_live_events(limit: int) -> list[dict[str, any]] {
     hub = _hub();
-    out: list[dict] = [];
+    out: list[dict[str, any]] = [];
     for n in [hub -->][?:Event] {
         if n.key.startswith("live-") {
             out.append(

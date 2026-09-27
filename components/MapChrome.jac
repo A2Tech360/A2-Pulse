@@ -9,13 +9,12 @@ import from "@hugeicons/core-free-icons" {
 }
 import from .map_markers { sticker_img_url }
 import from .pulse_theme { kind_label }
-sv import from ..services.pulse { suggest_places, geocode_address, PlaceSuggestion }
+import from ..services.pulse { suggest_places, geocode_address, PlaceSuggestion }
 
 glob LEGEND_KINDS: list[str] = ["event", "venue", "organizer", "alert", "civic"];
 
 def:pub MapAddressSearch(
-    dark: bool,
-    onGoTo: Callable[[float, float, str], None]
+    dark: bool, onGoTo: Callable[[float, float, str], None]
 ) -> JsxElement {
     has query: str = "",
         open: bool = False,
@@ -61,12 +60,7 @@ def:pub MapAddressSearch(
         if timerRef.current {
             clearTimeout(timerRef.current);
         }
-        timerRef.current = setTimeout(
-            lambda {
-                fetch_suggestions(q);
-            },
-            280
-        );
+        timerRef.current = setTimeout(lambda { fetch_suggestions(q); }, 280);
     }
 
     def on_change(e: ChangeEvent) {
@@ -154,12 +148,12 @@ def:pub MapAddressSearch(
     }
 
     return
-        <div className="pointer-events-auto absolute top-4 left-4 right-4 z-10 sm:right-auto sm:w-[min(100%,360px)]">
+        <div
+            className="pointer-events-auto absolute top-4 left-4 right-4 z-10 sm:right-auto sm:w-[min(100%,360px)]"
+        >
             <div
-                className={
-                    "flex items-center gap-2 rounded-full border pl-3 pr-1.5 py-1.5 "
-                    + shell
-                }
+                className={"flex items-center gap-2 rounded-full border pl-3 pr-1.5 py-1.5 "
+                    + shell}
             >
                 <HugeiconsIcon
                     icon={Search01Icon}
@@ -171,11 +165,9 @@ def:pub MapAddressSearch(
                     value={query}
                     onChange={on_change}
                     onKeyDown={on_key}
-                    onFocus={lambda (e: FocusEvent) {
-                        if len(places) > 0 {
-                            open = True;
-                        }
-                    }}
+                    onFocus={lambda (e: FocusEvent) { if len(places) > 0 {
+                        open = True;
+                    }}}
                     placeholder="Search address or place…"
                     className="min-w-0 flex-1 bg-transparent text-sm text-foreground outline-none placeholder:text-muted-foreground"
                     aria-label="Search map addresses"
@@ -201,11 +193,13 @@ def:pub MapAddressSearch(
                     disabled={busy or not query.strip()}
                     className="rounded-full bg-foreground px-3 py-1.5 text-xs font-semibold text-background transition-colors hover:opacity-90 disabled:opacity-40"
                 >
-                    {( "…" if busy else "Go")}
+                    {("…" if busy else "Go")}
                 </button>
             </div>
             {err
-                and <p className="mt-2 pl-3 text-xs font-medium text-destructive">{err}</p>}
+                and <p className="mt-2 pl-3 text-xs font-medium text-destructive">
+                    {err}
+                </p>}
             {open
                 and len(places) > 0
                 and <div
@@ -218,12 +212,12 @@ def:pub MapAddressSearch(
                             type="button"
                             role="option"
                             onClick={lambda (e: MouseEvent) { pick_place(place); }}
-                            className={
-                                "flex w-full items-start gap-2.5 px-3 py-2.5 text-left transition-colors "
-                                + row_hover
-                            }
+                            className={"flex w-full items-start gap-2.5 px-3 py-2.5 text-left transition-colors "
+                                + row_hover}
                         >
-                            <span className="mt-0.5 flex size-7 shrink-0 items-center justify-center rounded-full bg-muted">
+                            <span
+                                className="mt-0.5 flex size-7 shrink-0 items-center justify-center rounded-full bg-muted"
+                            >
                                 <HugeiconsIcon
                                     icon={Location01Icon}
                                     strokeWidth={2}
@@ -231,7 +225,9 @@ def:pub MapAddressSearch(
                                 />
                             </span>
                             <span className="min-w-0 flex-1">
-                                <span className="block truncate text-sm font-medium text-foreground">
+                                <span
+                                    className="block truncate text-sm font-medium text-foreground"
+                                >
                                     {place.title}
                                 </span>
                                 {place.sub
