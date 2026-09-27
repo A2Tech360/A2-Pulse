@@ -11,9 +11,8 @@ import from datetime { date }
 import from services { pulse_llm }
 import from services.speakable { speakable, word_count }
 import from services.brief_dates { brief_monday }
+import from services.brief_narrative { narrative_brief }
 
-glob TARGET_MIN_WORDS: int = 140;
-glob TARGET_MAX_WORDS: int = 160;
 # LLM output shorter than this is treated as a failed call.
 glob LLM_MIN_WORDS: int = 60;
 # LLM briefs longer than this, or with relative day words (the listener may hear
@@ -21,8 +20,6 @@ glob LLM_MIN_WORDS: int = 60;
 glob LLM_MAX_WORDS: int = 180;
 glob RELATIVE_DAY_WORDS: str = r"(?i)\b(today|tonight|tomorrow)\b";
 
-glob ORDINALS: list[str] = ["First", "Second", "Third", "Fourth", "Fifth"];
-glob WHY_LEADS: list[str] = ["Why it matters:", "Why it's here:", "Why you'd care:", "The reason:", "Why it made the list:"];
 
 def llm_write_brief(profile: str, items: str, week_of: str) -> str by pulse_llm.brief_llm(temperature=0.3, max_tokens=300);
 sem llm_write_brief = """You are the Editor for A2 Pulse, writing the weekly audio brief for one Ann Arbor resident, for the week of week_of (a Monday). A text-to-speech voice reads it aloud, so write for the ear, not the eye.
@@ -40,23 +37,6 @@ Spoken-text rules, all mandatory:
 sem llm_write_brief.profile = "Who the brief is for: name, home area, commute mode and interests.";
 sem llm_write_brief.items = "The ranked items, one per line, each with when, why it matters (strongest reason first) and what to do.";
 sem llm_write_brief.week_of = "The Monday this brief is for, e.g. Monday, September 21, 2026. Item days (Mon, Tue...) are days of this week.";
-
-def _lower_first(s: str) -> str {
-    return s[:1].lower() + s[1:] if s else s;
-}
-
-def _clause(reasons: list[str], n: int) -> str {
-    picked = [_lower_first(r.strip().rstrip(".")) for r in reasons[:n] if r.strip()];
-    if len(picked) == 0 {
-        return "";
-    }
-    if len(picked) == 1 {
-        return picked[0];
-    }
-    return ", ".join(picked[:-1]) + ", and " + picked[-1];
-}
-
-glob COUNT_WORDS: list[str] = ["no", "one", "two", "three", "four", "five"];
 
 """Order an item's reasons by the points each earned (from its trace rules), strongest first.
 A rule counted twice for the same reason only counts once here."""
@@ -77,100 +57,9 @@ def strongest_first(reasons: list[str], rules: list[dict[str, any]]) -> list[str
     return sorted(reasons, key=weight);
 }
 
-"""A reason clause as a sentence without the "Why it matters:" label."""
-def _why_sentence(why: str) -> str {
-    if why.startswith(("near ", "on your ", "close by ", "from ", "coming up ")) {
-        return "It's " + why;
-    }
-    if why.startswith(("affects ", "matches ")) {
-        return "It " + why;
-    }
-    return why[:1].upper() + why[1:];
-}
-
-"""A time phrase placed mid-sentence: "All week" -> "all week"; day names stay capitalized."""
-def _mid_sentence(when: str) -> str {
-    first = when.split(" ")[0].rstrip(",");
-    if first[:3] in ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"] or not first[:1].isupper() {
-        return when;
-    }
-    return when[:1].lower() + when[1:];
-}
-
-"""One item as spoken sentences. Knobs (for trimming): n_reasons, why_lead.
-The heading always keeps the time unless the action already says it."""
-def _item_sentence(i: int, it: dict[str, any], n_reasons: int, why_lead: bool) -> str {
-    name = str(it["name"]);
-    when = str(it.get("when", ""));
-    action = str(it.get("action", "")).strip();
-    head = "And finally" if i == 4 else (ORDINALS[i] if i < len(ORDINALS) else "Next");
-    out = f"{head}, {name}" + (f", {_mid_sentence(when)}." if when and when not in action else ".");
-    why = _clause(list(it.get("reasons", [])), n_reasons);
-    if why and why_lead {
-        out += f" {WHY_LEADS[i % len(WHY_LEADS)]} {why}.";
-    } elif why {
-        out += " " + _why_sentence(why) + ".";
-    }
-    if action {
-        out += " " + action;
-        if not action.endswith((".", "!", "?")) {
-            out += ".";
-        }
-    }
-    return out;
-}
-
-"""Deterministic brief aimed at 140-160 spoken words. When long it trims, last
-item first: the second reason, then the "Why it matters:" labels, then the
-intro. Times are never trimmed. When short it adds sign-off lines that still
-fit. Returns speakable text."""
+"""The template fallback: the narrative, friend-style brief (services/brief_narrative.jac)."""
 def template_brief(first_name: str, items: list[dict[str, any]], today: date | None = None) -> str {
-    n = len(items);
-    hello = "Good morning." if first_name.strip().lower() in ["", "you"] else f"Good morning {first_name.strip()}.";
-    if n == 0 {
-        return speakable(f"{hello} Nothing in Ann Arbor touches your week yet, so enjoy the quiet. Have a good week.", today);
-    }
-    count = COUNT_WORDS[n] if n < len(COUNT_WORDS) else str(n);
-    long_intro = f"{hello} Here are the {count} things that touch your week in Ann Arbor." if n > 1 else f"{hello} One thing touches your week in Ann Arbor.";
-    intros: list[str] = [long_intro, f"{hello} Here's your week."];
-    outro = "That's your Monday. Have a good week.";
-    extras: list[str] = [
-        "Tap thumbs up or down on any card and next week's brief leans your way.",
-        "Every item links back to its source on your cards."
-    ];
-    reasons: list[int] = [2] * n;
-    leads: list[bool] = [True] * n;
-    intro_i: list[int] = [0];
-    def build(extra_count: int) -> str {
-        parts = [intros[intro_i[0]]] + [_item_sentence(i, items[i], reasons[i], leads[i]) for i in range(n)];
-        parts.extend(extras[:extra_count]);
-        parts.append(outro);
-        return speakable(" ".join(parts), today);
-    }
-    text = build(0);
-    for knob in ["reasons", "leads"] {
-        i = n - 1;
-        while word_count(text) > TARGET_MAX_WORDS and i >= 0 {
-            if knob == "reasons" { reasons[i] = 1; }
-            else { leads[i] = False; }
-            text = build(0);
-            i -= 1;
-        }
-    }
-    if word_count(text) > TARGET_MAX_WORDS {
-        intro_i[0] = 1;
-        text = build(0);
-    }
-    k = 1;
-    while word_count(text) < TARGET_MIN_WORDS and k <= len(extras) {
-        longer = build(k);
-        if word_count(longer) > TARGET_MAX_WORDS {
-            break;
-        }
-        text = longer;
-        k += 1;
-    }
-    return text;
+    return narrative_brief(first_name, items, today);
 }
 
 """The lines the LLM sees for the ranked items. They are already made speakable, so it never has to guess what an

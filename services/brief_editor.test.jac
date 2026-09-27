@@ -49,7 +49,7 @@ test "llm error falls back to the template" {
     assert out["mode"] == "template";
     assert "provider down" in str(out["error"]);
     assert out["raw_llm"] is None;
-    assert out["spoken"].startswith("Good morning Jordan.");
+    assert out["spoken"].startswith("Good morning, Jordan.");
 }
 
 test "too-short llm output falls back to the template" {
@@ -71,18 +71,18 @@ test "llm off uses the template with no waiting" {
     assert elapsed < 0.5, elapsed;
 }
 
-test "template is 140 to 160 speakable words" {
+test "template is 130 to 180 speakable words" {
     out = template_brief("Jordan", ITEMS, TODAY);
-    assert 140 <= word_count(out) <= 160, f"{word_count(out)}: {out}";
+    assert 130 <= word_count(out) <= 180, f"{word_count(out)}: {out}";
     assert re.search(FORBIDDEN, out) is None, out;
     assert speakable(out, TODAY) == out;
     assert "5 dollars" in out;
 }
 
 test "template handles a quiet week and the You persona" {
-    assert template_brief("You", [], TODAY) == "Good morning. Nothing in Ann Arbor touches your week yet, so enjoy the quiet. Have a good week.";
+    assert template_brief("You", [], TODAY).startswith("Good morning. It's a quiet week");
     one = template_brief("You", ITEMS[:1], TODAY);
-    assert one.startswith("Good morning. One thing touches your week"), one;
+    assert one.startswith("Good morning. It's a pretty easy week, with one thing to plan around."), one;
 }
 
 test "deadline abandons a slow call" {
@@ -120,7 +120,7 @@ test "template never trims the time of an alert or civic item" {
         for it in ITEMS
     ];
     out = template_brief("Jordan", long_items, TODAY);
-    assert word_count(out) <= 165, word_count(out);
+    assert word_count(out) <= 180, word_count(out);
     for it in long_items {
         if str(it["when"]) not in str(it["action"]) {
             assert speakable(str(it["when"]), TODAY) in out, f"{it['when']} missing from: {out}";
@@ -142,13 +142,11 @@ test "reasons are ordered strongest first" {
     assert got == ["From U-M Jazz Collective, which you follow", "Matches your interest in music", "Close by at The Ark"], got;
 }
 
-test "unlabeled reasons read as sentences and mid-sentence times are lowercase" {
+test "narrative template: alert phrasing, no labels" {
     one: list[dict[str, any]] = [{"name": "State St sidewalk closure", "kind": "alert", "when": "All week", "reasons": ["From City of Ann Arbor, which you follow"], "action": "Use the east side crossing."}];
     out = template_brief("Luis", one, TODAY);
-    assert "State Street sidewalk closure, all week." in out, out;
-    assert _why_sentence("from Michigan Hiking Club, which you follow") == "It's from Michigan Hiking Club, which you follow";
-    assert _why_sentence("affects Central Campus, where you live or travel") == "It affects Central Campus, where you live or travel";
-    assert _mid_sentence("Thu all day") == "Thu all day";
+    assert "the State Street sidewalk closure runs all week" in out, out;
+    assert "Why it matters" not in out and "First," not in out, out;
 }
 
 test "the Editor is told the Monday the brief is for (next Monday on weekends)" {
@@ -171,7 +169,7 @@ test "an LLM brief over 180 words falls back to the template" {
     assert out["mode"] == "template";
     assert "too long" in str(out["error"]), out["error"];
     assert out["raw_llm"] == long;
-    assert out["spoken"].startswith("Good morning Jordan.") and out["words"] <= 165;
+    assert out["spoken"].startswith("Good morning, Jordan.") and out["words"] <= 180;
 }
 
 test "an LLM brief that says today, tonight or tomorrow falls back to the template" {

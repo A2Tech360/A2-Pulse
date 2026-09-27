@@ -1484,7 +1484,7 @@ impl GenerateBrief.rank {
 
     # Editor stage: LLM (8s deadline) or template, always passed through speakable().
     editor_items: list[dict] = [
-        {"name": it.name, "kind": it.kind, "when": it.when, "reasons": strongest_first(reasons[it.key], rules[it.key]), "action": it.action}
+        {"name": it.name, "kind": it.kind, "when": it.when, "day": nodes[it.key].day, "reasons": strongest_first(reasons[it.key], rules[it.key]), "action": it.action}
         for it in items
     ];
     profile = here.name + ", lives in " + home_name + ", commutes by " + here.commute + ", into " + ", ".join(interest_names);

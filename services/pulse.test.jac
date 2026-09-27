@@ -33,7 +33,7 @@ test "template brief is speakable and stored when the llm is off" {
         b = (root spawn GenerateBrief(persona=persona, use_ai=True)).reports[0];
         assert not b.ai;
         assert re.search(FORBIDDEN, b.summary) is None, b.summary;
-        assert 140 <= len(b.summary.split()) <= 160, f"{persona}: {len(b.summary.split())}";
+        assert 130 <= len(b.summary.split()) <= 180, f"{persona}: {len(b.summary.split())}";
         assert profile_of(persona).last_summary == b.summary;
     }
 }
