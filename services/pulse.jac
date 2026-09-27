@@ -2,6 +2,7 @@
 
 import os;
 import time;
+import asyncio;
 import math;
 import json;
 import base64;
@@ -16,6 +17,7 @@ import from services { pulse_llm }
 import from services.brief_editor { edit_brief, strongest_first }
 import from services.speakable { speakable }
 import from services.brief_trace { new_trace, append_trace, ms, sum_by_rule }
+import from services.voice_guard { rate_check, client_ip, known_voice_ids, speak_limit, speak_window_s }
 
 # ---------------------------------------------------------------- nodes
 node Hub {
@@ -320,12 +322,17 @@ def:pub suggest_places(query: str) -> list[PlaceSuggestion];
 """Resolve one address or place name to coordinates."""
 def:pub geocode_address(query: str) -> PlaceSuggestion;
 
-"""Read text aloud with ElevenLabs (ELEVENLABS_API_KEY / _VOICE_ID / _MODEL).
-voice_id picks the voice actor; empty uses ELEVENLABS_VOICE_ID or the default.
-With empty text and a persona, reads that persona's last generated brief.
-Text always goes through speakable() first.
-Returns {"audio": "data:audio/mpeg;base64,...", "error": ""}; audio is "" when unavailable."""
-def:pub speak_brief(text: str, voice_id: str = "", persona: str = "") -> dict;
+"""Read a profile's last generated brief aloud with ElevenLabs (ELEVENLABS_API_KEY /
+_VOICE_ID / _MODEL). Takes a persona key or a profile id (jid), never text: it
+speaks UserProfile.last_summary, generating the brief first if there is none.
+voice_id must be one of list_voices() (empty uses ELEVENLABS_VOICE_ID or the
+default). Rate limited per profile and per client IP (services/voice_guard.jac).
+Returns {"audio": "data:audio/mpeg;base64,...", "error": ""}; on failure audio is ""
+with "code" (tts_unavailable, unknown_profile, unknown_voice, rate_limited,
+no_brief, tts_error, text_not_accepted) and, when rate limited, "retry_after"
+seconds. The client falls back to the browser voice whenever audio is empty.
+`text` exists only to refuse it explicitly: any value is an error."""
+async def:pub speak_brief(persona: str = "", voice_id: str = "", profile_id: str = "", text: str = "") -> dict;
 
 """Voice actors for the brief: the account's voices when the key has voices_read,
 otherwise a curated set of ElevenLabs premade voices. Each: {id, name, desc}."""

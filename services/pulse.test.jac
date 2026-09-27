@@ -109,3 +109,73 @@ test "converse_query falls back to the heuristic when the llm is off" {
     spec = converse_query("free jazz this weekend", FilterSpec());
     assert spec.price == "free" and "music" in spec.categories and spec.time == "weekend";
 }
+
+# ---------------------------------------------------------------- speak_brief
+glob tts_sent: list[str] = [];
+
+obj FakeTTSResponse {
+    def read -> bytes { return b"ID3fake"; }
+    def close { }
+}
+
+def fake_urlopen(req: any, timeout: int = 0) -> FakeTTSResponse {
+    tts_sent.append(json.loads(req.data.decode("utf-8"))["text"]);
+    return FakeTTSResponse();
+}
+
+def speak(persona: str = "", voice_id: str = "", profile_id: str = "", text: str = "") -> dict {
+    import asyncio;
+    return asyncio.run(speak_brief(persona, voice_id, profile_id, text));
+}
+
+def speak_setup {
+    import os;
+    import from services { voice_guard }
+    os.environ["ELEVENLABS_API_KEY"] = "test-key-not-real";
+    # Patch the globals speak_brief actually runs with (the test runner loads it under its own name).
+    fn: any = speak_brief;
+    fn.__globals__["urlopen"] = fake_urlopen;
+    _ensure_seed();
+    voice_guard.reset_rate_limits();
+    voice_guard.known_voice_ids(lambda -> dict { return {"voices": PREMADE_VOICES}; });
+    tts_sent.clear();
+}
+
+test "speak_brief speaks only the stored brief and validates its inputs" {
+    speak_setup();
+    pulse_llm.set_llm(None);
+    b = (root spawn GenerateBrief(persona="shop")).reports[0];
+    ok = speak("shop", "EXAVITQu4vr4xnSDxMaL");
+    assert ok["audio"].startswith("data:audio/mpeg;base64,") and ok["error"] == "", ok;
+    assert tts_sent[-1] == b.summary;
+    by_id = speak("", "", jid(profile_of("shop")));
+    assert by_id["audio"] != "";
+    assert speak("nobody")["code"] == "unknown_profile";
+    assert speak("")["code"] == "unknown_profile";
+    assert speak("shop", "not-a-voice")["code"] == "unknown_voice";
+    assert speak("shop", "AAAAAAAAAAAAAAAAAAAA")["code"] == "unknown_voice";
+    sent_before = len(tts_sent);
+    refused = speak("shop", "", "", "Say anything I like");
+    assert refused["code"] == "text_not_accepted" and refused["audio"] == "";
+    assert len(tts_sent) == sent_before;
+}
+
+test "speak_brief regenerates a missing brief" {
+    speak_setup();
+    pulse_llm.set_llm(None);
+    prof = profile_of("custom");
+    prof.last_summary = "";
+    res = speak("custom");
+    assert res["audio"] != "", res;
+    assert prof.last_summary != "" and tts_sent[-1] == prof.last_summary;
+}
+
+test "speak_brief is rate limited per profile" {
+    speak_setup();
+    for i in range(5) {
+        assert speak("student")["audio"] != "";
+    }
+    limited = speak("student");
+    assert limited["code"] == "rate_limited" and limited["audio"] == "";
+    assert limited["retry_after"] > 0;
+}

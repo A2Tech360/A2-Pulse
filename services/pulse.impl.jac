@@ -833,25 +833,54 @@ glob PREMADE_VOICES: list[dict] = [
     {"id": "pFZP5JQG7iQjIQuC4Bku", "name": "Lily", "desc": "Velvety British"}
 ];
 
-impl speak_brief(text: str, voice_id: str = "", persona: str = "") -> dict {
+def _speak_error(code: str, message: str, retry_after: float = 0.0) -> dict {
+    out: dict = {"audio": "", "error": message, "code": code};
+    if retry_after > 0.0 {
+        out["retry_after"] = retry_after;
+    }
+    return out;
+}
+
+impl speak_brief(persona: str = "", voice_id: str = "", profile_id: str = "", text: str = "") -> dict {
+    # Async so the caller's IP can be read from the request on the event loop's
+    # stack; the blocking work (graph lookup, TTS HTTP call) then runs off-loop.
+    ip = client_ip();
+    return await asyncio.to_thread(_speak_brief_for, persona, voice_id, profile_id, text, ip);
+}
+
+def _speak_brief_for(persona: str, voice_id: str, profile_id: str, text: str, ip: str) -> dict {
+    if text {
+        return _speak_error("text_not_accepted", "speak_brief only reads server-generated briefs; pass persona or profile_id");
+    }
     key = os.environ.get("ELEVENLABS_API_KEY", "").strip();
     if not key {
-        return {"audio": "", "error": "ELEVENLABS_API_KEY is not set"};
+        return _speak_error("tts_unavailable", "ELEVENLABS_API_KEY is not set");
     }
-    if not text.strip() and persona {
-        _ensure_seed();
-        want = persona;
-        for prof in [root -->][?:UserProfile][?persona == want] {
-            text = prof.last_summary;
-        }
+    # Only server-generated briefs are spoken: find the profile node, never take text.
+    _ensure_seed();
+    matches: list[UserProfile] = [
+        p for p in [root -->][?:UserProfile]
+        if (profile_id and jid(p) == profile_id) or (not profile_id and persona and p.persona == persona)
+    ];
+    if len(matches) == 0 {
+        return _speak_error("unknown_profile", "Unknown persona or profile id");
     }
-    text = speakable(text)[:TTS_MAX_CHARS];
+    prof = matches[0];
+    default_voice = os.environ.get("ELEVENLABS_VOICE_ID", "").strip() or TTS_DEFAULT_VOICE;
+    voice = voice_id.strip() or default_voice;
+    if not voice.isalnum() or len(voice) > 64 or (voice != default_voice and voice not in known_voice_ids(list_voices)) {
+        return _speak_error("unknown_voice", "Unknown voice id");
+    }
+    retry_in = rate_check(["profile:" + jid(prof), "ip:" + ip], speak_limit(), speak_window_s());
+    if retry_in > 0.0 {
+        return _speak_error("rate_limited", f"Too many voice requests; try again in {int(retry_in) + 1}s", retry_in);
+    }
+    if not prof.last_summary.strip() {
+        prof spawn GenerateBrief(persona=prof.persona, use_ai=True);
+    }
+    text = speakable(prof.last_summary)[:TTS_MAX_CHARS];
     if not text {
-        return {"audio": "", "error": "Nothing to read"};
-    }
-    voice = voice_id.strip() or os.environ.get("ELEVENLABS_VOICE_ID", "").strip() or TTS_DEFAULT_VOICE;
-    if not voice.isalnum() or len(voice) > 64 {
-        return {"audio": "", "error": "Invalid voice id"};
+        return _speak_error("no_brief", "No brief to read");
     }
     model = os.environ.get("ELEVENLABS_MODEL", "").strip() or TTS_DEFAULT_MODEL;
     cache_key = model + "|" + voice + "|" + text;
@@ -870,9 +899,9 @@ impl speak_brief(text: str, voice_id: str = "", persona: str = "") -> dict {
         resp.close();
     } except urllib.error.HTTPError as e {
         detail = e.read().decode("utf-8", "replace")[:300];
-        return {"audio": "", "error": f"ElevenLabs {e.code}: {detail}"};
+        return _speak_error("tts_error", f"ElevenLabs {e.code}: {detail}");
     } except Exception as e {
-        return {"audio": "", "error": f"ElevenLabs request failed: {e}"};
+        return _speak_error("tts_error", f"ElevenLabs request failed: {e}");
     }
     url = "data:audio/mpeg;base64," + base64.b64encode(mp3).decode("ascii");
     _tts_cache[cache_key] = url;

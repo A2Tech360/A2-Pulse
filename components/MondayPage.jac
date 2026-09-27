@@ -129,7 +129,7 @@ def:pub MondayPage() -> JsxElement {
         voice_loading = True;
         res: dict = {"audio": "", "error": ""};
         try {
-            res = await speak_brief(text, voice_id);
+            res = await speak_brief(persona, voice_id);
         } except Exception {
             res = {"audio": "", "error": "Voice request failed"};
         }
