@@ -1,6 +1,6 @@
 # A2 Pulse
 
-**Your Ann Arbor, briefed and mapped.**
+**Your Ann Arbor, briefed and mapped. Don't scroll it, feel it.**
 
 A2 Pulse pulls Ann Arbor’s scattered local information into one graph — U-M events,
 downtown venues, road closures, transit detours, and City Council items — then turns
