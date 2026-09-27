@@ -721,7 +721,12 @@ impl _profile_dict(p: UserProfile) -> dict {
         "via_names": [x.name for x in via],
         "interests": [c.name for c in [p ->:InterestedIn:->][?:Category]],
         "follows": [o.key for o in [p ->:Follows:->][?:Organizer]],
-        "weights": p.weights
+        "weights": p.weights,
+        "home_label": p.home_label,
+        "home_lat": p.home_lat,
+        "home_lng": p.home_lng,
+        "dest_key": p.dest_key,
+        "dest_label": p.dest_label
     };
 }
 
@@ -730,6 +735,142 @@ impl get_profile(uid: str) -> dict {
     if prof is None {
         return {"ok": False, "error": "Invalid profile id"};
     }
+    return _profile_dict(prof);
+}
+
+glob ROUTE_BUFFER_MILES: float = 0.5;
+glob COMMUTE_MODES: list[str] = ["walk", "bike", "car", "bus"];
+
+impl _nearest_place_node(lat: float, lng: float) -> Place | None {
+    best: Place | None = None;
+    best_d = 1.0e9;
+    for pl in [_hub() -->][?:Place] {
+        d = _miles(lat, lng, pl.lat, pl.lng);
+        if d < best_d {
+            best_d = d;
+            best = pl;
+        }
+    }
+    return best;
+}
+
+impl nearest_place(lat: float, lng: float) -> dict {
+    _ensure_seed();
+    pl = _nearest_place_node(lat, lng);
+    if pl is None {
+        return {"key": "", "name": "", "dist": 0.0};
+    }
+    return {"key": pl.key, "name": pl.name, "dist": round(_miles(lat, lng, pl.lat, pl.lng), 2)};
+}
+
+impl route_places(home_key: str, dest_key: str) -> list[dict] {
+    _ensure_seed();
+    home = _find_key(home_key);
+    dest = _find_key(dest_key);
+    if home is None or home.kind != "place" {
+        return [];
+    }
+    if dest is None or dest.kind != "place" or dest.key == home.key {
+        return [{"key": home.key, "name": home.name}];
+    }
+    # Flat projection in miles around home; fine at city scale.
+    kx = 69.17 * math.cos(math.radians(home.lat));
+    ky = 69.0;
+    bx = (dest.lng - home.lng) * kx;
+    by = (dest.lat - home.lat) * ky;
+    seg2 = bx * bx + by * by;
+    hits: list[dict] = [];
+    for pl in [_hub() -->][?:Place] {
+        px = (pl.lng - home.lng) * kx;
+        py = (pl.lat - home.lat) * ky;
+        t = max(0.0, min(1.0, (px * bx + py * by) / seg2)) if seg2 > 0.0 else 0.0;
+        dx = px - t * bx;
+        dy = py - t * by;
+        d = math.sqrt(dx * dx + dy * dy);
+        if pl.key == home.key or pl.key == dest.key or d <= ROUTE_BUFFER_MILES {
+            order = -1.0 if pl.key == home.key else (2.0 if pl.key == dest.key else t);
+            hits.append({"key": pl.key, "name": pl.name, "t": order});
+        }
+    }
+    hits.sort(key=lambda (h: dict) -> float { return h["t"]; });
+    return [{"key": h["key"], "name": h["name"]} for h in hits];
+}
+
+impl onboarding_options() -> dict {
+    hub = _ensure_seed();
+    places = [{"key": pl.key, "name": pl.name, "lat": pl.lat, "lng": pl.lng} for pl in [hub -->][?:Place]];
+    orgs: list[dict] = [];
+    for o in [hub -->][?:Organizer] {
+        cats: list[str] = [];
+        for x in [o <-:OrganizedBy:<-][?:PulseNode] {
+            for c in _cats_of(x) {
+                if c not in cats {
+                    cats.append(c);
+                }
+            }
+        }
+        orgs.append({"key": o.key, "name": o.name, "type": o.sub, "categories": cats});
+    }
+    return {"places": places, "categories": CATEGORIES, "organizers": orgs, "modes": COMMUTE_MODES};
+}
+
+impl save_profile(
+    uid: str,
+    home_key: str,
+    home_lat: float = 0.0,
+    home_lng: float = 0.0,
+    home_label: str = "",
+    commute: str = "walk",
+    via: list[str] = [],
+    dest_key: str = "",
+    dest_label: str = "",
+    interests: list[str] = [],
+    follows: list[str] = []
+) -> dict {
+    prof = _profile_for(uid);
+    if prof is None {
+        return {"ok": False, "error": "Invalid profile id"};
+    }
+    home = _find_key(home_key) if home_key else None;
+    if (home is None or home.kind != "place") and (home_lat != 0.0 or home_lng != 0.0) {
+        home = _nearest_place_node(home_lat, home_lng);
+    }
+    if home is None or home.kind != "place" {
+        return {"ok": False, "error": "Pick where you live"};
+    }
+    for e in [edge prof ->:LivesAt:->] { del e; }
+    for e in [edge prof ->:CommutesVia:->] { del e; }
+    for e in [edge prof ->:InterestedIn:->] { del e; }
+    for e in [edge prof ->:Follows:->] { del e; }
+    prof +>:LivesAt():+> home;
+    route: list[str] = [k for k in via] if len(via) > 0 else [home.key];
+    seen: list[str] = [];
+    for k in route {
+        pl = _find_key(k);
+        if pl is not None and pl.kind == "place" and pl.key not in seen {
+            prof +>:CommutesVia():+> pl;
+            seen.append(pl.key);
+        }
+    }
+    for c in interests {
+        cat = _find_key("cat-" + c) if c in CATEGORIES else None;
+        if cat is not None {
+            prof +>:InterestedIn():+> cat;
+        }
+    }
+    for k in follows {
+        org = _find_key(k);
+        if org is not None and org.kind == "organizer" {
+            prof +>:Follows():+> org;
+        }
+    }
+    prof.commute = commute if commute in COMMUTE_MODES else "walk";
+    prof.home_label = home_label[:200];
+    prof.home_lat = home_lat;
+    prof.home_lng = home_lng;
+    prof.dest_key = dest_key if _find_key(dest_key) is not None else "";
+    prof.dest_label = dest_label[:200];
+    prof.onboarded = True;
     return _profile_dict(prof);
 }
 

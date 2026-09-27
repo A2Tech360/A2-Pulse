@@ -49,7 +49,12 @@ node UserProfile {
         commute: str = "walk",
         weights: dict[str, float] = {},
         uid: str = "",
-        onboarded: bool = False;
+        onboarded: bool = False,
+        home_label: str = "",
+        home_lat: float = 0.0,
+        home_lng: float = 0.0,
+        dest_key: str = "",
+        dest_label: str = "";
 }
 
 # ---------------------------------------------------------------- edges
@@ -197,6 +202,7 @@ def _action_for(n: PulseNode, reasons: list[str], commute: str) -> str;
 def _heuristic_filters(text: str, prior: FilterSpec) -> FilterSpec;
 def _profile_for(uid: str) -> UserProfile | None;
 def _profile_dict(p: UserProfile) -> dict;
+def _nearest_place_node(lat: float, lng: float) -> Place | None;
 
 # ---------------------------------------------------------------- walkers
 """Traverse N hops out from a center node, keeping only paths that pass every filter."""
@@ -305,6 +311,32 @@ def:pub list_personas() -> list[dict];
 """This browser's own profile, created on first call from the "You" defaults.
 uid is a random ID the browser keeps in localStorage; the profile's persona key is "u-<uid>"."""
 def:pub get_profile(uid: str) -> dict;
+
+"""Save onboarding answers to this browser's profile and mark it onboarded.
+commute is walk, bike, car or bus; via, interests and follows are keys/names from onboarding_options."""
+def:pub save_profile(
+    uid: str,
+    home_key: str,
+    home_lat: float = 0.0,
+    home_lng: float = 0.0,
+    home_label: str = "",
+    commute: str = "walk",
+    via: list[str] = [],
+    dest_key: str = "",
+    dest_label: str = "",
+    interests: list[str] = [],
+    follows: list[str] = []
+) -> dict;
+
+"""The closest of the graph's neighborhoods to a point: {key, name, dist} (miles)."""
+def:pub nearest_place(lat: float, lng: float) -> dict;
+
+"""Neighborhoods a commute passes through, in order from home to destination.
+TODO: straight-line approximation (places within ~0.5 mi of the segment); swap in real routing."""
+def:pub route_places(home_key: str, dest_key: str) -> list[dict];
+
+"""Everything the onboarding screens offer: neighborhoods, categories, and organizers with their categories."""
+def:pub onboarding_options() -> dict;
 
 """Browser Maps JavaScript API key (a public, referrer-restricted key) from GOOGLE_MAPS_API_KEY."""
 def:pub maps_config() -> dict {

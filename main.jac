@@ -7,7 +7,7 @@ import from services.pulse {
     Snapshot, GNode, GEdge, MapItem, Dossier, Brief, BriefItem, FilterSpec, PlaceSuggestion
 }
 # Per-browser profiles + onboarding endpoints.
-import from services.pulse { get_profile }
+import from services.pulse { get_profile, save_profile, nearest_place, route_places, onboarding_options }
 
 import ".styles.global.css";
 import from "@jac/runtime" { Router }
