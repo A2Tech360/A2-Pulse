@@ -354,7 +354,7 @@ def _upsert_event(hub: Hub, raw: RawEvent, src: SourceDoc) -> str {
     }
     cats = [c for c in raw.categories if c in CATEGORIES];
     if len(cats) == 0 {
-        cats = guess_cats(name + " " + raw.desc + " " + when);
+        cats = guess_cats(name, raw.desc, src.name);
     }
     price = raw.price if raw.price >= 0.0 else guess_price(name + " " + raw.desc);
     ven = _ensure_venue(hub, raw.venue + " " + name + " " + raw.desc);
@@ -376,6 +376,11 @@ def _upsert_event(hub: Hub, raw: RawEvent, src: SourceDoc) -> str {
         existing.source_name = src.name;
         existing.source_url = url;
         existing.sub = "free" if price == 0.0 else "paid";
+        # Re-tag on every sync so fixes to the category rules reach stored events.
+        for e in [edge existing ->:TaggedAs:->] {
+            del e;
+        }
+        _tag(hub, existing, cats);
         return "updated";
     }
     ev = Event(
@@ -398,6 +403,11 @@ def _upsert_event(hub: Hub, raw: RawEvent, src: SourceDoc) -> str {
     ev +>:HostedAt():+> ven;
     ev +>:OrganizedBy():+> org;
     ev +>:SourcedFrom():+> src;
+    _tag(hub, ev, cats);
+    return "created";
+}
+
+def _tag(hub: Hub, ev: Event, cats: list[str]) {
     for c in cats {
         ckey = "cat-" + c;
         for cat in [hub -->][?:Category] {
@@ -406,7 +416,6 @@ def _upsert_event(hub: Hub, raw: RawEvent, src: SourceDoc) -> str {
             }
         }
     }
-    return "created";
 }
 
 def _collect_raws(kind: str, text: str, url: str, name: str) -> list[RawEvent] {
@@ -436,7 +445,7 @@ def _collect_raws(kind: str, text: str, url: str, name: str) -> list[RawEvent] {
                     row.source_url = url;
                 }
                 if len(row.categories) == 0 {
-                    row.categories = guess_cats(nm + " " + row.desc);
+                    row.categories = guess_cats(nm, row.desc, name);
                 }
                 raws.append(row);
                 seen.append(nm.lower());

@@ -91,75 +91,131 @@ def parse_day(when: str) -> int:
         return -1
 
 
-def guess_cats(blob: str) -> list[str]:
-    low = (blob or "").lower()
-    found: list[str] = []
-    rules = [
-        (
-            "music",
-            [
-                "concert",
-                "jazz",
-                "symphony",
-                "choir",
-                "band",
-                "piano",
-                "orchestra",
-                "folk",
-                "song",
-                "music",
-                "vocal",
-                "singer",
-                "mariachi",
-                "quartet",
-                "recital",
-                "tour",
-                "dj",
-                "indie",
-                "rock",
-                "hip hop",
-                "rap",
-            ],
-        ),
-        (
-            "nightlife",
-            [
-                "club",
-                "nightlife",
-                "dance night",
-                "late night",
-                "disco",
-                "amapiano",
-                "afrobeats",
-                "afterparty",
-            ],
-        ),
-        (
-            "comedy",
-            ["comedy", "comedian", "stand-up", "standup", "improv", "open mic"],
-        ),
-        (
-            "arts",
-            ["dance", "theater", "theatre", "gallery", "opera", "ballet", "film", "art"],
-        ),
-        ("food", ["brunch", "tasting", "farmers", "market", "dinner", "food", "brewery", "wine"]),
-        (
-            "academic",
-            ["lecture", "workshop", "seminar", "school day", "panel", "academic"],
-        ),
-        ("social", ["mixer", "festival", "fair", "party", "night", "social"]),
-        ("community", ["library", "family", "kids", "community"]),
-        ("outdoor", ["hike", "park", "river", "nature", "outdoor"]),
-        ("networking", ["career", "networking", "meetup", "1 million cups"]),
-        ("sports", ["football", "soccer", "game", "sports"]),
-        ("civic", ["council", "vote", "democracy", "civic"]),
-    ]
-    for cat, keys in rules:
-        if cat in CATEGORIES and any(k in low for k in keys) and cat not in found:
+# Category keywords, matched as whole words (case-insensitive) against the event
+# title. Substring matching mis-tagged "Shroom Tour" as music ("tour"), "party" as
+# arts ("art"), "Gathering" as music ("rap") and a sailing club as nightlife ("club").
+_CAT_RULES: list[tuple[str, list[str]]] = [
+    ("music", [
+        r"concerts?", r"jazz", r"symphon(?:y|ies)", r"orchestras?", r"choirs?", r"chorale",
+        r"bands?", r"pianos?", r"pianists?", r"guitars?", r"guitarists?", r"violins?", r"cellos?",
+        r"clarinets?", r"percussion", r"quartets?", r"recitals?", r"mariachi", r"sopranos?",
+        r"mezzo-soprano", r"requiem", r"messiah", r"albums?", r"dj", r"reggaeton", r"hip[- ]hop",
+        r"rap", r"rock", r"folk", r"bluegrass", r"blues", r"open stage", r"open mic",
+        r"songwriters?", r"music", r"musical", r"ukulele", r"singers?", r"sing-?along",
+        r"chimes?", r"live music", r"disko", r"disco",
+    ]),
+    ("nightlife", [
+        r"night ?clubs?", r"club nights?", r"bar crawl", r"pub crawl", r"nightlife",
+        r"dance party", r"disco", r"disko", r"late[- ]night", r"after ?party", r"lounge",
+        r"latin fridays?",
+    ]),
+    ("comedy", [r"comedy", r"comedians?", r"stand-?up", r"improv", r"open mic"]),
+    ("arts", [
+        r"theaters?", r"theatres?", r"galler(?:y|ies)", r"exhibits?", r"exhibitions?",
+        r"museums?", r"ballet", r"dance", r"opera", r"films?", r"screenings?", r"crafts?",
+        r"photography", r"arts?", r"artists?", r"paintings?", r"sculptures?", r"poetry",
+        r"premiere", r"planetarium",
+    ]),
+    ("food", [
+        r"food", r"foodies", r"dinners?", r"brunch", r"breakfast", r"lunch", r"tastings?",
+        r"wine", r"beer", r"brewer(?:y|ies)", r"markets?", r"pizza", r"cheese", r"eats",
+    ]),
+    ("academic", [
+        r"lectures?", r"talks?", r"symposium", r"forum", r"class(?:es)?", r"workshops?",
+        r"seminars?", r"panels?", r"conferences?", r"campus tours?", r"book launch", r"labs?",
+    ]),
+    ("social", [
+        r"fest(?:ival)?s?", r"fairs?", r"part(?:y|ies)", r"socials?", r"open house",
+        r"homecoming", r"mixers?", r"meet-?ups?", r"trivia", r"games?", r"game nights?",
+        r"scavenger hunt", r"pregame", r"crawl", r"new friends", r"giveaway",
+        r"magic: the gathering",
+    ]),
+    ("community", [
+        r"librar(?:y|ies)", r"book sales?", r"seed swap", r"mending", r"volunteers?",
+        r"fundraisers?", r"charit(?:y|ies)", r"open hours", r"famil(?:y|ies)", r"kids",
+        r"community", r"support group", r"walk for", r"meals on wheels",
+    ]),
+    ("outdoor", [
+        r"hikes?", r"hiking", r"walks?", r"parks?", r"nature", r"gardens?", r"farms?",
+        r"orchards?", r"corn maze", r"trails?", r"rides?", r"river", r"lakes?", r"parkrun",
+        r"wildflowers?", r"flowers?", r"shrooms?", r"mushrooms?", r"foraging", r"regatta",
+        r"sailing", r"outdoors?",
+    ]),
+    ("networking", [
+        r"careers?", r"networking", r"entrepreneurs?", r"founders?", r"co-founders?",
+        r"1 million cups", r"startups?", r"professionals?", r"alumn(?:i|ae|us|a)",
+    ]),
+    ("sports", [
+        r"football", r"soccer", r"basketball", r"hockey", r"volleyball", r"baseball",
+        r"softball", r"tailgates?", r"regatta", r"races?", r"5k", r"10k", r"marathon",
+        r"group runs?", r"parkrun", r"game day", r"sports",
+    ]),
+    ("civic", [
+        r"city council", r"council (?:vote|meeting)", r"public comment", r"town hall",
+        r"votes?", r"voting", r"elections?", r"ordinance", r"civic", r"racism", r"democracy",
+    ]),
+]
+_CAT_RES: list[tuple[str, re.Pattern[str]]] = [
+    (cat, re.compile(r"(?<![\w-])(?:" + "|".join(keys) + r")(?![\w-])", re.IGNORECASE))
+    for cat, keys in _CAT_RULES
+]
+# Descriptions are noisy; only these strong phrases may add a category from them.
+_DESC_RES: list[tuple[str, re.Pattern[str]]] = [
+    ("comedy", re.compile(r"\b(?:improv|stand-?up|comedy show|comedian)\b", re.IGNORECASE)),
+    ("music", re.compile(r"\b(?:live music|concert)\b", re.IGNORECASE)),
+    ("arts", re.compile(r"\b(?:play|theater|theatre|dance performance|exhibition)\b", re.IGNORECASE)),
+]
+# Venues/presenters whose listings are one kind of thing.
+_SOURCE_RULES: dict[str, dict[str, list[str]]] = {
+    "the ark": {"always": ["music"], "allowed": ["music", "comedy", "nightlife"], "default": ["music"]},
+    "university musical society": {"always": [], "allowed": ["music", "arts", "comedy"], "default": ["arts"]},
+}
+
+
+def split_host_title(title: str) -> tuple[str, str]:
+    """Observer-style "Event: Host" titles -> (event, host). Other titles -> (title, "")."""
+    t = (title or "").strip()
+    if ": " not in t:
+        return t, ""
+    event, host = t.rsplit(": ", 1)
+    event = event.strip().strip("\"“”'‘’ ")
+    return event, host.strip()
+
+
+def _match_cats(text: str) -> list[str]:
+    return [cat for cat, rx in _CAT_RES if rx.search(text or "")]
+
+
+def guess_cats(title: str, desc: str = "", source: str = "", fallback: list[str] | None = None) -> list[str]:
+    """Categories for a listing: title first (event part of "Event: Host"), then strong
+    description phrases, then the host part, then the source's default."""
+    rules = _SOURCE_RULES.get((source or "").strip().lower(), {})
+    allowed = rules.get("allowed") or []
+    event, host = split_host_title(title)
+    found = _match_cats(event)
+    for cat, rx in _DESC_RES:
+        if rx.search(desc or "") and cat not in found and (not found or cat == "comedy"):
             found.append(cat)
+    if host:
+        # The host names who performs or where ("Ann Arbor Symphony Orchestra",
+        # "Nature Center"); only those kinds count, so "Kerrytown Market & Shops"
+        # doesn't make a chime concert a food event.
+        host_cats = _match_cats(host)
+        for c in host_cats:
+            if c not in found and (not found or c in ("music", "arts", "comedy", "outdoor")):
+                found.append(c)
+    if allowed:
+        found = [c for c in found if c in allowed]
+    for c in reversed(rules.get("always") or []):
+        if c not in found:
+            found.insert(0, c)
     if not found:
-        found.append("community")
-    return found[:3]
+        found = list(fallback or rules.get("default") or ["community"])
+    out: list[str] = []
+    for c in found:
+        if c in CATEGORIES and c not in out:
+            out.append(c)
+    return out[:3]
 
 
 def guess_price(blob: str) -> float:
@@ -182,6 +238,8 @@ def _row(
     venue: str,
     organizer: str,
     source_url: str,
+    source: str = "",
+    fallback_cats: list[str] | None = None,
 ) -> dict[str, Any]:
     name = unescape(name or "").strip()
     desc = unescape(desc or "").strip()
@@ -194,7 +252,7 @@ def _row(
         "venue": venue,
         "organizer": organizer,
         "price": guess_price(blob),
-        "categories": guess_cats(blob),
+        "categories": guess_cats(name, desc, source, fallback_cats),
         "source_url": source_url,
         "day": parse_day(when),
     }
@@ -242,7 +300,7 @@ def parse_ums(text: str, page_url: str) -> list[dict[str, Any]]:
         desc = desc_lines[0] if desc_lines else ""
         if title:
             venue = "Hill Auditorium" if "hill" in (title + desc).lower() else "UMS venue"
-            out.append(_row(title, desc, when, venue, "UMS", page_url))
+            out.append(_row(title, desc, when, venue, "UMS", page_url, "University Musical Society"))
         if len(out) >= 24:
             break
     return out
@@ -290,7 +348,7 @@ def parse_generic(text: str, page_url: str, source_name: str) -> list[dict[str, 
             continue
         after = text[m.end() : m.end() + 220]
         desc = " ".join([ln.strip() for ln in after.split("\n") if ln.strip()][:2])
-        out.append(_row(title, desc, when, "", source_name, page_url))
+        out.append(_row(title, desc, when, "", source_name, page_url, source_name))
         if len(out) >= 20:
             break
     return out
@@ -329,7 +387,7 @@ def parse_tribe(payload: dict[str, Any], page_url: str, source_name: str) -> lis
             venue = str(venue_obj.get("venue") or venue_obj.get("name") or "")
         desc = strip_html(str(e.get("description") or e.get("excerpt") or ""))
         link = str(e.get("url") or page_url)
-        out.append(_row(title, desc, when, venue, source_name, link))
+        out.append(_row(title, desc, when, venue, source_name, link, source_name))
         if len(out) >= 40:
             break
     return out
@@ -398,21 +456,11 @@ def parse_eventbrite(html: str, page_url: str) -> list[dict[str, Any]]:
                 for t in tags
                 if isinstance(t, dict)
             )
-            row = _row(name, desc or tag_blob, when, venue, org, link)
-            # Prefer nightlife/music tags from Eventbrite buckets when present.
-            bkey = str(bucket.get("key") or bucket.get("type") or "")
-            if "nightlife" in bkey and "nightlife" not in row["categories"]:
-                row["categories"] = ["nightlife"] + [
-                    c for c in row["categories"] if c != "nightlife"
-                ]
-            elif "music" in bkey and "music" not in row["categories"]:
-                row["categories"] = ["music"] + [
-                    c for c in row["categories"] if c != "music"
-                ]
-            elif "food" in bkey and "food" not in row["categories"]:
-                row["categories"] = ["food"] + [
-                    c for c in row["categories"] if c != "food"
-                ]
+            # The destination-page bucket (music / nightlife / food) is only a fallback
+            # when the title itself says nothing; it used to be forced onto every event.
+            bkey = str(bucket.get("key") or bucket.get("type") or "").lower()
+            bucket_cats = [c for c in ("nightlife", "music", "food") if c in bkey]
+            row = _row(name, desc or tag_blob, when, venue, org, link, "Eventbrite Ann Arbor", bucket_cats or None)
             out.append(row)
             if len(out) >= 50:
                 return out
