@@ -171,6 +171,18 @@ impl _migrate_seed_extras(hub: Hub) {
         }
         n +>:SourcedFrom():+> have[sk];
     }
+    # Alert paths were redrawn along real streets; refresh graphs seeded with the old lines.
+    for a in ALERTS {
+        if a["key"] in have {
+            al = have[a["key"]];
+            if al.path != a["path"] {
+                al.path = a["path"];
+                al.lat = a["lat"];
+                al.lng = a["lng"];
+                al.desc = a["desc"];
+            }
+        }
+    }
 }
 
 impl _ensure_seed -> Hub {
