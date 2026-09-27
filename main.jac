@@ -1,10 +1,15 @@
 """A2 Pulse - Ann Arbor's living local graph. Entry: endpoints + router."""
 
 import from services.pulse {
-    EgoSnapshot, MapSnapshot, SearchArchive, GetDossier, GenerateBrief, Feedback,
+    EgoSnapshot, NetworkBrowse, MapSnapshot, SearchArchive, GetDossier, GenerateBrief,
+    Feedback,
     seed_pulse, converse_query, list_personas, update_custom_profile, maps_config,
-    Snapshot, GNode, GEdge, MapItem, Dossier, Brief, BriefItem, FilterSpec
+    suggest_places, geocode_address, speak_brief, list_voices, map_pin_overview,
+    dossier_images,
+    Snapshot, GNode, GEdge, MapItem, Dossier, Brief, BriefItem, FilterSpec,
+    PlaceSuggestion, MapOverview, DossierMedia, DossierImage
 }
+import from services.event_ingest { sync_online_events, list_live_events, SyncReport }
 
 import ".styles.global.css";
 import from "@jac/runtime" { Router }

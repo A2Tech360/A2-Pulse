@@ -49,6 +49,7 @@ react-resizable-panels = "4.12.4"
 recharts = "3.10.1"
 sonner = "2.0.8"
 vaul = "1.1.2"
+d3-force = "^3.0.0"
 
 [dependencies.npm.dev]
 vite = "^6.4.1"
@@ -84,13 +85,13 @@ og_description = "A minimal jac-shadcn starter."
 og_site_name = "Blank canvas"
 
 
-[scale]
-[scale.microservices]
-enabled = false
-
 [jacpack]
 name = 'a2-pulse-map'
 description = 'Jac IDE snapshot for a2-pulse-map'
 
 [jachammer]
 project_id = "prj_eb329498b4fd4928b849e7008b3d002d"
+
+[scale]
+[scale.microservices]
+enabled = false

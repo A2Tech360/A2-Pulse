@@ -7,6 +7,7 @@
 
 /* A2 Pulse - minimal: white canvas, warm grays, near-black accent */
 :root {
+    color-scheme: light;
     --background: oklch(0.995 0.001 90);
     --foreground: oklch(0.16 0.005 60);
     --card: oklch(1 0 0);
@@ -42,38 +43,40 @@
 }
 
 .dark {
-    --background: oklch(0.15 0.004 60);
-    --foreground: oklch(0.97 0.002 90);
-    --card: oklch(0.19 0.004 60);
-    --card-foreground: oklch(0.97 0.002 90);
-    --popover: oklch(0.19 0.004 60);
-    --popover-foreground: oklch(0.97 0.002 90);
-    --primary: oklch(0.95 0.002 90);
-    --primary-foreground: oklch(0.18 0.005 60);
-    --secondary: oklch(0.25 0.005 60);
-    --secondary-foreground: oklch(0.97 0.002 90);
-    --muted: oklch(0.25 0.005 60);
-    --muted-foreground: oklch(0.7 0.01 60);
-    --accent: oklch(0.26 0.005 60);
-    --accent-foreground: oklch(0.97 0.002 90);
+    color-scheme: dark;
+    /* Soft charcoal gray — slightly darker, still not pure black */
+    --background: oklch(0.21 0.006 70);
+    --foreground: oklch(0.96 0.002 90);
+    --card: oklch(0.25 0.006 70);
+    --card-foreground: oklch(0.96 0.002 90);
+    --popover: oklch(0.25 0.006 70);
+    --popover-foreground: oklch(0.96 0.002 90);
+    --primary: oklch(0.94 0.002 90);
+    --primary-foreground: oklch(0.20 0.006 70);
+    --secondary: oklch(0.30 0.006 70);
+    --secondary-foreground: oklch(0.96 0.002 90);
+    --muted: oklch(0.30 0.006 70);
+    --muted-foreground: oklch(0.72 0.01 70);
+    --accent: oklch(0.32 0.007 70);
+    --accent-foreground: oklch(0.96 0.002 90);
     --destructive: oklch(0.704 0.191 22.216);
-    --border: oklch(1 0 0 / 10%);
+    --border: oklch(1 0 0 / 13%);
     --input: oklch(1 0 0 / 15%);
-    --ring: oklch(0.55 0.01 60);
-    --chart-1: oklch(0.95 0.002 90);
+    --ring: oklch(0.56 0.01 70);
+    --chart-1: oklch(0.94 0.002 90);
     --chart-2: oklch(0.65 0.12 150);
     --chart-3: oklch(0.62 0.1 250);
     --chart-4: oklch(0.72 0.13 70);
     --chart-5: oklch(0.65 0.18 25);
     --radius: 0.625rem;
-    --sidebar: oklch(0.19 0.004 60);
-    --sidebar-foreground: oklch(0.97 0.002 90);
-    --sidebar-primary: oklch(0.95 0.002 90);
-    --sidebar-primary-foreground: oklch(0.18 0.005 60);
-    --sidebar-accent: oklch(0.26 0.005 60);
-    --sidebar-accent-foreground: oklch(0.97 0.002 90);
-    --sidebar-border: oklch(1 0 0 / 10%);
-    --sidebar-ring: oklch(0.55 0.01 60);
+    --sidebar: oklch(0.25 0.006 70);
+    --sidebar-foreground: oklch(0.96 0.002 90);
+    --sidebar-primary: oklch(0.94 0.002 90);
+    --sidebar-primary-foreground: oklch(0.20 0.006 70);
+    --sidebar-accent: oklch(0.32 0.007 70);
+    --sidebar-accent-foreground: oklch(0.96 0.002 90);
+    --sidebar-border: oklch(1 0 0 / 13%);
+    --sidebar-ring: oklch(0.56 0.01 70);
 }
 
 @theme inline {
@@ -148,8 +151,55 @@
     }
 }
 
-/* Google Maps info window */
+/* Google Maps info window — strip default chrome; our bubble owns the look */
 .gm-style .gm-style-iw-c {
-    border-radius: 10px !important;
-    box-shadow: 0 8px 24px rgb(0 0 0 / 0.12) !important;
+    padding: 0 !important;
+    max-width: none !important;
+    background: transparent !important;
+    border: none !important;
+    border-radius: 0 !important;
+    box-shadow: none !important;
+    outline: none !important;
+}
+.gm-style .gm-style-iw-d {
+    overflow: visible !important;
+    background: transparent !important;
+    border: none !important;
+}
+.gm-style .gm-style-iw-t::after,
+.gm-style .gm-style-iw-tc::after {
+    display: none !important;
+    content: none !important;
+}
+.gm-style .gm-style-iw-tc {
+    display: none !important;
+}
+.gm-style .gm-style-iw-t {
+    border: none !important;
+    background: transparent !important;
+}
+.gm-style .gm-style-iw-chr {
+    position: absolute !important;
+    top: 4px !important;
+    right: 4px !important;
+    height: 28px !important;
+    background: transparent !important;
+}
+.gm-style button.gm-ui-hover-effect {
+    width: 28px !important;
+    height: 28px !important;
+    opacity: 0.5 !important;
+}
+.gm-style button.gm-ui-hover-effect:hover {
+    opacity: 0.9 !important;
+}
+.gm-style button.gm-ui-hover-effect > span {
+    background-color: currentColor !important;
+    margin: 6px !important;
+}
+.pulse-map-dark .gm-style button.gm-ui-hover-effect {
+    color: #1c1917 !important;
+}
+.pulse-map-light .gm-style button.gm-ui-hover-effect {
+    color: #fafaf9 !important;
 }
