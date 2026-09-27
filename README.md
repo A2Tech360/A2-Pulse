@@ -1,4 +1,4 @@
-# A2 Pulse
+9# A2 Pulse
 
 **Your Ann Arbor, briefed and mapped.**
 
@@ -7,6 +7,21 @@ downtown venues, road closures, transit detours and City Council items. It turns
 that graph into a one-minute spoken brief for your week, plus an interactive map
 and a graph explorer. Built with [Jac](https://www.jaseci.org/) for the A2Tech360
 Hackathon (Local Impact track), University of Michigan, Sept 26–27, 2026.
+
+## Who it's for
+
+People in Ann Arbor whose week is shaped by things they don't hear about in time:
+
+- **Jordan, a U-M junior on North Campus** who bikes to class down Plymouth Road,
+  and wants to know about the lane closure on that route before Wednesday
+  morning, plus the free music and food nearby.
+- **Maya, who owns a shop on Main Street** and drives in, and needs to know about
+  road work outside her door, downtown events that bring foot traffic, and
+  Council votes that affect her business.
+
+Both personas are built into the demo. Onboarding creates your own profile the
+same way: where you live, how you get around, and what you care about.
+
 
 ## Features
 
