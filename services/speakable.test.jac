@@ -174,3 +174,34 @@ test "brand names read as words" {
     assert sp("Check TheRide trip planner") == "Check The Ride trip planner";
     assert sp("Jazz Brunch at Blue LLama") == "Jazz Brunch at Blue Llama";
 }
+
+# ---------------------------------------------------------------- 24-hour times and ISO dates (live listings)
+test "24-hour times become spoken times" {
+    assert sp("Doors at 22:00") == "Doors at 10 p.m.";
+    assert sp("Show 19:30") == "Show 7:30 p.m.";
+    assert sp("Opens 09:00") == "Opens 9 a.m.";
+    assert sp("Starts 20:00:00") == "Starts 8 p.m.";
+    assert sp("Ends 00:00") == "Ends midnight";
+    assert sp("Lunch 12:00:00") == "Lunch noon";
+    assert sp("Saturday 22:00") == "Saturday at 10 p.m.";
+}
+
+test "ambiguous clock times are left alone, 12-hour times unchanged" {
+    assert sp("Meet at 10:30") == "Meet at 10:30";
+    assert sp("Fri 8:00 PM") == "Friday at 8 p.m.";
+    assert sp("7:30 PM") == "7:30 p.m.";
+}
+
+test "ISO dates and date-times read as spoken dates" {
+    assert sp("2026-10-10") == "Saturday, October 10th";
+    assert sp("2026-10-10 19:30") == "Saturday, October 10th at 7:30 p.m.";
+    assert sp("2026-10-10 22:00:00") == "Saturday, October 10th at 10 p.m.";
+    assert sp("2026-10-02T20:00:00-04:00") == "Friday, October 2nd at 8 p.m.";
+    assert sp("Save it to your calendar for 2026-10-14 20:00:00.") == "Save it to your calendar for Wednesday, October 14th at 8 p.m.";
+}
+
+test "card-style times read naturally" {
+    assert sp("Fri, Oct 2 · 9:30 PM") == "Friday, October 2nd at 9:30 p.m.";
+    assert sp("Sat, Oct 10 · 7:30 PM") == "Saturday, October 10th at 7:30 p.m.";
+    assert_clean("Free. Save it to your calendar for 2026-10-02 21:30.");
+}
