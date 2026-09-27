@@ -1,6 +1,8 @@
 """A2 Pulse: Ann Arbor's living local graph - schema, walkers and endpoints."""
 
 import os;
+import time;
+import asyncio;
 import math;
 import time;
 import threading;
@@ -13,6 +15,11 @@ import from datetime { datetime }
 import from services.seed_data {
     SOURCES, CATEGORIES, PLACES, VENUES, ORGANIZERS, EVENTS, ALERTS, CIVIC, PERSONAS
 }
+import from services { pulse_llm }
+import from services.brief_editor { edit_brief, strongest_first }
+import from services.speakable { speakable }
+import from services.brief_trace { new_trace, append_trace, ms, sum_by_rule }
+import from services.voice_guard { rate_check, client_ip, known_voice_ids, speak_limit, speak_window_s }
 
 # ---------------------------------------------------------------- nodes
 node Hub {
@@ -56,7 +63,10 @@ node UserProfile {
         home_lat: float = 0.0,
         home_lng: float = 0.0,
         dest_key: str = "",
-        dest_label: str = "";
+        dest_label: str = "",
+        # Last spoken brief (already speakable), so speak_brief can read it server-side.
+        last_summary: str = "",
+        last_summary_at: str = "";
 }
 
 # ---------------------------------------------------------------- edges
@@ -155,7 +165,9 @@ obj Brief {
         interests: list[str] = [],
         summary: str = "",
         ai: bool = False,
-        items: list[BriefItem] = [];
+        items: list[BriefItem] = [],
+        # Debug trace (profile read, per-rule scores, actions, editor I/O, timings); only with debug=True.
+        trace: dict = {};
 }
 
 obj FilterSpec {
@@ -178,16 +190,13 @@ obj PlaceSuggestion {
 }
 
 # ---------------------------------------------------------------- LLM layer
-def llm_parse_filters(text: str, prior: FilterSpec, allowed_categories: list[str]) -> FilterSpec by llm(temperature=0.1);
+# Model, key check and 8s deadline live in services/pulse_llm.jac (LLM_MODEL in .env).
+def llm_parse_filters(text: str, prior: FilterSpec, allowed_categories: list[str]) -> FilterSpec by pulse_llm.brief_llm(temperature=0.1, max_output_retries=1);
 sem llm_parse_filters = "Turn an Ann Arbor resident's natural-language request into graph filters. Follow-ups like 'anything with food?' or 'add music' must ADD to the prior filters, not reset them. kinds may only contain event, organizer, alert, civic. price is any, free or under10. time is today, weekend or week. distance is miles from campus (0 means any; near campus means 1). reply is one short friendly sentence describing what you are showing.";
 sem llm_parse_filters.text = "The user's request.";
 sem llm_parse_filters.prior = "The filters currently active in the app.";
 sem llm_parse_filters.allowed_categories = "The only category names that may appear in categories.";
-
-def llm_write_brief(profile: str, items: str) -> str by llm(temperature=0.4, max_tokens=320);
-sem llm_write_brief = "Write a warm, spoken-style Monday morning brief (about 90-120 words) for this Ann Arbor resident covering the numbered items in order. Mention why each matters and what to do. Plain text, no markdown, no emojis.";
-sem llm_write_brief.profile = "Who the brief is for: persona, home area, commute, interests.";
-sem llm_write_brief.items = "The ranked items with reasons and actions.";
+# The Editor's spoken-brief prompt lives in services/brief_editor.jac (llm_write_brief).
 
 # ---------------------------------------------------------------- helpers (bodies in pulse.impl.jac)
 def _has_llm -> bool;
@@ -274,10 +283,14 @@ walker:pub GetDossier {
     can read with PulseNode entry;
 }
 
-"""Monday crew: walk from a persona to its interests, places and follows, then rank what matters."""
+"""Monday crew: walk from a persona to its interests, places and follows, then rank what matters.
+debug=True returns the trace on Brief.trace; every full run also appends it to logs/briefs.jsonl.
+score_only=True stops after ranking (no Editor, nothing stored or logged) for the debug panel."""
 walker:pub GenerateBrief {
     has persona: str = "student",
         use_ai: bool = True,
+        debug: bool = False,
+        score_only: bool = False,
         reports: list[Brief] = [];
 
     can start with Root entry;
@@ -352,10 +365,17 @@ def:pub suggest_places(query: str) -> list[PlaceSuggestion];
 """Resolve one address or place name to coordinates."""
 def:pub geocode_address(query: str) -> PlaceSuggestion;
 
-"""Read text aloud with ElevenLabs (ELEVENLABS_API_KEY / _VOICE_ID / _MODEL).
-voice_id picks the voice actor; empty uses ELEVENLABS_VOICE_ID or the default.
-Returns {"audio": "data:audio/mpeg;base64,...", "error": ""}; audio is "" when unavailable."""
-def:pub speak_brief(text: str, voice_id: str = "") -> dict;
+"""Read a profile's last generated brief aloud with ElevenLabs (ELEVENLABS_API_KEY /
+_VOICE_ID / _MODEL). Takes a persona key or a profile id (jid), never text: it
+speaks UserProfile.last_summary, generating the brief first if there is none.
+voice_id must be one of list_voices() (empty uses ELEVENLABS_VOICE_ID or the
+default). Rate limited per profile and per client IP (services/voice_guard.jac).
+Returns {"audio": "data:audio/mpeg;base64,...", "error": ""}; on failure audio is ""
+with "code" (tts_unavailable, unknown_profile, unknown_voice, rate_limited,
+no_brief, tts_error, text_not_accepted) and, when rate limited, "retry_after"
+seconds. The client falls back to the browser voice whenever audio is empty.
+`text` exists only to refuse it explicitly: any value is an error."""
+async def:pub speak_brief(persona: str = "", voice_id: str = "", profile_id: str = "", text: str = "") -> dict;
 
 """Voice actors for the brief: the account's voices when the key has voices_read,
 otherwise a curated set of ElevenLabs premade voices. Each: {id, name, desc}."""

@@ -6,9 +6,14 @@ entry-point = "main.jac"
 kind = "web-app"
 
 [byllm]
+# The model is chosen at startup from LLM_MODEL in .env (see .env.example and
+# services/pulse_llm.jac). No provider or model is hard-coded; the provider's
+# own key env var (OPENAI_API_KEY, ANTHROPIC_API_KEY, GEMINI_API_KEY, ...) is
+# read by LiteLLM directly. "mockllm" is byLLM's built-in null model: every
+# Jac module resolves the ambient `llm` on import and an empty name raises when
+# no key is set, so it only fills the slot while the LLM is off.
 [byllm.model]
-default_model = "${LLM_MODEL:-gpt-4o-mini}"
-api_key = "${OPENAI_API_KEY:-}"
+default_model = "${LLM_MODEL:-mockllm}"
 
 
 [jac-shadcn]

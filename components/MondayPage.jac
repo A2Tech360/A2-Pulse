@@ -9,6 +9,7 @@ import from .ui.select { Select, SelectTrigger, SelectValue, SelectContent, Sele
 import from .pulse_theme { kind_color, kind_label }
 import from .profile_store { my_persona, load_profile, commute_verb }
 import from .net { with_timeout }
+import from .BriefDebugPanel { BriefDebugPanel }
 sv import from ..services.pulse { GenerateBrief, Feedback, Brief, BriefItem, list_personas, speak_brief, list_voices }
 
 glob PERSONA_TABS: list[dict] = [
@@ -221,7 +222,7 @@ def:pub MondayPage() -> JsxElement {
         voice_note = "";
         res: dict = {"audio": "", "error": ""};
         try {
-            res = await with_timeout(speak_brief(text, voice_id), {"audio": "", "error": "timeout"});
+            res = await with_timeout(speak_brief(target_persona(persona), voice_id), {"audio": "", "error": "timeout", "code": "timeout"});
         } except Exception {
             res = {"audio": "", "error": "Voice request failed"};
         }
@@ -231,7 +232,14 @@ def:pub MondayPage() -> JsxElement {
         voice_loading = False;
         if not res["audio"] {
             print("ElevenLabs unavailable, using browser voice:", res["error"]);
-            voice_note = "The studio voice didn't respond, so your browser is reading the brief." if w.speechSynthesis else "Voice isn't available right now. The brief is written above.";
+            code: str = res["code"] or "";
+            if not w.speechSynthesis {
+                voice_note = "Voice isn't available right now. The brief is written above.";
+            } elif code == "rate_limited" {
+                voice_note = "The studio voice is taking a short break, so your browser is reading the brief.";
+            } else {
+                voice_note = "The studio voice didn't respond, so your browser is reading the brief.";
+            }
             speak_fallback(text);
             return;
         }
@@ -412,5 +420,6 @@ def:pub MondayPage() -> JsxElement {
             </p>
             <Button variant="outline" size="sm" onClick={lambda (e: MouseEvent) { widen_brief(); }}>{widen_label()}</Button>
         </div>}
+        <BriefDebugPanel persona={target_persona(persona)} />
     </div>;
 }

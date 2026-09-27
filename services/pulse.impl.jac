@@ -4,13 +4,7 @@ glob KIND_TOGGLES: list[str] = ["event", "organizer", "alert", "civic"];
 glob MAX_NODES: int = 90;
 
 impl _has_llm -> bool {
-    for k in ["OPENAI_API_KEY", "ANTHROPIC_API_KEY", "GEMINI_API_KEY", "GOOGLE_API_KEY"] {
-        v = os.environ.get(k, "");
-        if v and len(v.strip()) > 8 {
-            return True;
-        }
-    }
-    return False;
+    return pulse_llm.llm_enabled();
 }
 
 impl _hub -> Hub {
@@ -489,24 +483,33 @@ impl GenerateBrief.start {
 }
 
 impl GenerateBrief.rank {
+    t_start = time.perf_counter();
+    trace = new_trace(here.persona);
     today = datetime.now().weekday();
+    # Profile agent: read the persona node and its edges.
     homes = [here ->:LivesAt:->][?:Place];
     route = [here ->:CommutesVia:->][?:Place];
     interests = [here ->:InterestedIn:->][?:Category];
     follows = [here ->:Follows:->][?:Organizer];
     w = here.weights;
+    t_profile = time.perf_counter();
+
+    # Relevance agent: every point is recorded with the rule that earned it.
     scores: dict[str, float] = {};
     reasons: dict[str, list[str]] = {};
     nodes: dict[str, PulseNode] = {};
+    rules: dict[str, list[dict]] = {};
 
-    def bump(n: PulseNode, pts: float, why: str) -> None {
+    def bump(n: PulseNode, pts: float, why: str, rule: str) -> None {
         k = n.key;
         if k not in scores {
             scores[k] = 0.0;
             reasons[k] = [];
             nodes[k] = n;
+            rules[k] = [];
         }
         scores[k] = scores[k] + pts;
+        rules[k].append({"rule": rule, "points": round(pts, 3), "detail": why});
         if why not in reasons[k] { reasons[k].append(why); }
     }
 
@@ -514,38 +517,46 @@ impl GenerateBrief.rank {
         is_home = p in homes;
         for x in [p <-:AffectsRoute:<-][?:PulseNode] {
             if x.kind == "alert" {
-                bump(x, 3.0 if is_home else 2.6, ("Near your home in " if is_home else "On your " + here.commute + " route via ") + p.name);
+                bump(x, 3.0 if is_home else 2.6, ("Near your home in " if is_home else "On your " + here.commute + " route via ") + p.name, "home_alert" if is_home else "route_alert");
             } else {
-                bump(x, 2.2, "Affects " + p.name + ", where you live or travel");
+                bump(x, 2.2, "Affects " + p.name + ", where you live or travel", "affects_place");
             }
         }
         for v in [p <-:Near:<-][?:Venue] {
             for e in [v <-:HostedAt:<-][?:Event] {
-                bump(e, 1.0, "Close by at " + v.name);
+                bump(e, 1.0, "Close by at " + v.name, "near_venue");
             }
         }
     }
     for c in interests {
         for x in [c <-:TaggedAs:<-][?:PulseNode] {
-            bump(x, 1.5 * w.get(c.name, 1.0), "Matches your interest in " + c.name);
+            bump(x, 1.5 * w.get(c.name, 1.0), "Matches your interest in " + c.name, "interest");
         }
     }
     for o in follows {
         for x in [o <-:OrganizedBy:<-][?:PulseNode] {
-            bump(x, 2.0, "From " + o.name + ", which you follow");
+            bump(x, 2.0, "From " + o.name + ", which you follow", "follows");
         }
     }
     for (k, n) in nodes.items() {
         for c in _cats_of(n) {
+            before = scores[k];
             scores[k] = scores[k] * w.get(c, 1.0);
+            if scores[k] != before {
+                rules[k].append({"rule": "weight", "points": round(scores[k] - before, 3), "detail": "x" + str(w.get(c, 1.0)) + " " + c + " weight from feedback"});
+            }
         }
         delta = n.day - today;
         if delta >= 0 and delta <= 2 and n.kind in ["civic", "alert"] {
             scores[k] = scores[k] + 0.6;
             reasons[k].append("Coming up in the next " + str(delta + 1) + " days");
+            rules[k].append({"rule": "soon", "points": 0.6, "detail": reasons[k][-1]});
         }
     }
     ranked = sorted(list(scores.keys()), key=lambda (k: str) -> float { return scores[k]; }, reverse=True);
+    t_score = time.perf_counter();
+
+    # Action agent: a to-do for each of the top five.
     items: list[BriefItem] = [];
     for k in ranked[:5] {
         n = nodes[k];
@@ -561,37 +572,69 @@ impl GenerateBrief.rank {
     }
     home_name = homes[0].name if len(homes) > 0 else "Ann Arbor";
     interest_names = [c.name for c in interests];
-    lines: list[str] = [];
-    i = 1;
-    for it in items {
-        lines.append(str(i) + ". " + it.name + " (" + it.when + "): " + it.why + " " + it.action);
-        i += 1;
+    t_actions = time.perf_counter();
+
+    trace["profile"] = {
+        "name": here.name, "commute": here.commute,
+        "home": [{"key": p.key, "name": p.name} for p in homes],
+        "via": [{"key": p.key, "name": p.name} for p in route],
+        "interests": interest_names,
+        "follows": [{"key": o.key, "name": o.name} for o in follows],
+        "weights": dict(w)
+    };
+    trace["scored"] = [
+        {"rank": r + 1, "key": k, "name": nodes[k].name, "kind": nodes[k].kind, "score": round(scores[k], 3), "selected": r < 5, "by_rule": sum_by_rule(rules[k]), "rules": rules[k]}
+        for (r, k) in enumerate(ranked)
+    ];
+    trace["actions"] = [{"key": it.key, "name": it.name, "action": it.action} for it in items];
+    trace["llm"] = {"on": pulse_llm.llm_enabled(), "model": pulse_llm.llm_model_label()};
+    # The "soon" rule and date wording depend on the weekday the brief ran.
+    trace["today"] = {"date": datetime.now().date().isoformat(), "weekday": today};
+    timing: dict[str, float] = {
+        "profile_ms": ms(t_start, t_profile), "relevance_ms": ms(t_profile, t_score), "actions_ms": ms(t_score, t_actions)
+    };
+
+    if self.score_only {
+        timing["total_ms"] = ms(t_start);
+        trace["timing_ms"] = timing;
+        report Brief(
+            persona=here.persona, profile_name=here.name, home=home_name, commute=here.commute,
+            interests=interest_names, items=items, trace=(trace if self.debug else {})
+        );
+        return;
     }
-    summary = "";
-    used_ai = False;
-    if self.use_ai and _has_llm() {
-        try {
-            profile = here.name + ", lives in " + home_name + ", commutes by " + here.commute + ", into " + ", ".join(interest_names);
-            summary = llm_write_brief(profile, "\n".join(lines));
-            used_ai = True;
-        } except Exception {
-            summary = "";
-        }
-    }
-    if summary == "" {
-        first = here.name.split(",")[0];
-        parts: list[str] = ["Good morning " + first + ". Here is what touches your week in Ann Arbor."];
-        j = 1;
-        for it in items {
-            parts.append("Number " + str(j) + ": " + it.name + ", " + it.when + ". " + it.action);
-            j += 1;
-        }
-        parts.append("That is your Monday. Have a good week.");
-        summary = " ".join(parts);
-    }
+
+    # Editor stage: LLM (8s deadline) or template, always passed through speakable().
+    editor_items: list[dict] = [
+        {"name": it.name, "kind": it.kind, "when": it.when, "reasons": strongest_first(reasons[it.key], rules[it.key]), "action": it.action}
+        for it in items
+    ];
+    profile = here.name + ", lives in " + home_name + ", commutes by " + here.commute + ", into " + ", ".join(interest_names);
+    edited = edit_brief(here.name.split(",")[0], profile, editor_items, self.use_ai);
+    summary: str = edited["spoken"];
+    used_ai: bool = edited["mode"] == "llm";
+    t_editor = time.perf_counter();
+    here.last_summary = summary;
+    here.last_summary_at = datetime.now().isoformat(timespec="seconds");
+    t_persist = time.perf_counter();
+
+    trace["editor"] = {
+        "mode": edited["mode"], "model": edited["model"], "input": edited["input"],
+        "raw_llm": edited["raw_llm"], "error": edited["error"], "words": edited["words"]
+    };
+    trace["spoken"] = summary;
+    timing["editor_ms"] = ms(t_actions, t_editor);
+    timing["llm_ms"] = edited["llm_ms"];
+    timing["template_ms"] = edited["template_ms"];
+    timing["speakable_ms"] = edited["speakable_ms"];
+    timing["persist_ms"] = ms(t_editor, t_persist);
+    timing["total_ms"] = ms(t_start, t_persist);
+    trace["timing_ms"] = timing;
+    append_trace(trace);
     report Brief(
         persona=here.persona, profile_name=here.name, home=home_name, commute=here.commute,
-        interests=interest_names, summary=summary, ai=used_ai, items=items
+        interests=interest_names, summary=summary, ai=used_ai, items=items,
+        trace=(trace if self.debug else {})
     );
     return;
 }
@@ -648,8 +691,9 @@ impl update_custom_profile(home_key: str, commute: str, interests: list[str]) ->
 impl converse_query(text: str, prior: FilterSpec) -> FilterSpec {
     _ensure_seed();
     if _has_llm() {
-        try {
-            spec = llm_parse_filters(text, prior, CATEGORIES);
+        res = pulse_llm.call_with_deadline(llm_parse_filters, [text, prior, CATEGORIES]);
+        spec: any = res["value"];
+        if res["ok"] and isinstance(spec, FilterSpec) {
             spec.categories = [c for c in spec.categories if c in CATEGORIES];
             spec.kinds = [k for k in spec.kinds if k in KIND_TOGGLES];
             if spec.price not in ["any", "free", "under10"] { spec.price = "any"; }
@@ -657,8 +701,6 @@ impl converse_query(text: str, prior: FilterSpec) -> FilterSpec {
             spec.query = text;
             if not spec.reply { spec.reply = "Updated your view."; }
             return spec;
-        } except Exception {
-            return _heuristic_filters(text, prior);
         }
     }
     return _heuristic_filters(text, prior);
@@ -1065,18 +1107,54 @@ glob PREMADE_VOICES: list[dict] = [
     {"id": "pFZP5JQG7iQjIQuC4Bku", "name": "Lily", "desc": "Velvety British"}
 ];
 
-impl speak_brief(text: str, voice_id: str = "") -> dict {
+def _speak_error(code: str, message: str, retry_after: float = 0.0) -> dict {
+    out: dict = {"audio": "", "error": message, "code": code};
+    if retry_after > 0.0 {
+        out["retry_after"] = retry_after;
+    }
+    return out;
+}
+
+impl speak_brief(persona: str = "", voice_id: str = "", profile_id: str = "", text: str = "") -> dict {
+    # Async so the caller's IP can be read from the request on the event loop's
+    # stack; the blocking work (graph lookup, TTS HTTP call) then runs off-loop.
+    ip = client_ip();
+    return await asyncio.to_thread(_speak_brief_for, persona, voice_id, profile_id, text, ip);
+}
+
+def _speak_brief_for(persona: str, voice_id: str, profile_id: str, text: str, ip: str) -> dict {
+    if text {
+        return _speak_error("text_not_accepted", "speak_brief only reads server-generated briefs; pass persona or profile_id");
+    }
     key = os.environ.get("ELEVENLABS_API_KEY", "").strip();
     if not key {
-        return {"audio": "", "error": "ELEVENLABS_API_KEY is not set"};
+        return _speak_error("tts_unavailable", "ELEVENLABS_API_KEY is not set");
     }
-    text = text.strip()[:TTS_MAX_CHARS];
+    # Only server-generated briefs are spoken: find the profile node, never take text.
+    _ensure_seed();
+    matches: list[UserProfile] = [
+        p for p in [root -->][?:UserProfile]
+        if (profile_id and jid(p) == profile_id) or (not profile_id and persona and p.persona == persona)
+    ];
+    if len(matches) == 0 {
+        return _speak_error("unknown_profile", "Unknown persona or profile id");
+    }
+    prof = matches[0];
+    default_voice = os.environ.get("ELEVENLABS_VOICE_ID", "").strip() or TTS_DEFAULT_VOICE;
+    voice = voice_id.strip() or default_voice;
+    if not voice.isalnum() or len(voice) > 64 or (voice != default_voice and voice not in known_voice_ids(list_voices)) {
+        return _speak_error("unknown_voice", "Unknown voice id");
+    }
+    retry_in = rate_check(["profile:" + jid(prof), "ip:" + ip], speak_limit(), speak_window_s());
+    if retry_in > 0.0 {
+        return _speak_error("rate_limited", f"Too many voice requests; try again in {int(retry_in) + 1}s", retry_in);
+    }
+    if not prof.last_summary.strip() {
+        prof spawn GenerateBrief(persona=prof.persona, use_ai=True);
+    }
+    text = speakable(prof.last_summary)[:TTS_MAX_CHARS];
     if not text {
-        return {"audio": "", "error": "Nothing to read"};
-    }
-    voice = voice_id.strip() or os.environ.get("ELEVENLABS_VOICE_ID", "").strip() or TTS_DEFAULT_VOICE;
-    if not voice.isalnum() or len(voice) > 64 {
-        return {"audio": "", "error": "Invalid voice id"};
+        return _speak_error("no_brief", "No brief to read");
     }
     model = os.environ.get("ELEVENLABS_MODEL", "").strip() or TTS_DEFAULT_MODEL;
     cache_key = model + "|" + voice + "|" + text;
@@ -1095,9 +1173,9 @@ impl speak_brief(text: str, voice_id: str = "") -> dict {
         resp.close();
     } except urllib.error.HTTPError as e {
         detail = e.read().decode("utf-8", "replace")[:300];
-        return {"audio": "", "error": f"ElevenLabs {e.code}: {detail}"};
+        return _speak_error("tts_error", f"ElevenLabs {e.code}: {detail}");
     } except Exception as e {
-        return {"audio": "", "error": f"ElevenLabs request failed: {e}"};
+        return _speak_error("tts_error", f"ElevenLabs request failed: {e}");
     }
     url = "data:audio/mpeg;base64," + base64.b64encode(mp3).decode("ascii");
     _tts_cache[cache_key] = url;
