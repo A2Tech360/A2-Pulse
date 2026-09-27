@@ -40,6 +40,7 @@ node PulseNode {
         address: str = "",
         source_name: str = "",
         source_url: str = "",
+        posted_by: str = "",
         path: list[list[float]] = [];
 }
 
@@ -135,6 +136,7 @@ obj Dossier {
         venue: str = "",
         address: str = "",
         organizer: str = "",
+        posted_by: str = "",
         price: float = 0.0,
         categories: list[str] = [],
         source_name: str = "",
@@ -178,6 +180,8 @@ obj FilterSpec {
         price: str = "any",
         time: str = "week",
         date: str = "",
+        community: bool = True,
+        community_only: bool = False,
         distance: float = 0.0,
         reply: str = "";
 }
@@ -272,6 +276,7 @@ def _hub -> Hub;
 def _miles(lat1: float, lng1: float, lat2: float, lng2: float) -> float;
 def _cats_of(n: PulseNode) -> list[str];
 def _venue_of(n: PulseNode) -> PulseNode | None;
+def _is_neighbors_board(n: PulseNode) -> bool;
 def llm_event_on_date(when_text: str, event_name: str, target_iso: str) -> bool by llm(
     temperature=0.0, max_tokens=20
 );
@@ -308,6 +313,8 @@ walker:pub EgoSnapshot {
         price: str = "any",
         time: str = "week",
         date: str = "",
+        community: bool = True,
+        community_only: bool = False,
         distance: float = 0.0,
         clat: float = 42.2780,
         clng: float = -83.7382,
@@ -330,6 +337,8 @@ walker:pub NetworkBrowse {
         price: str = "any",
         time: str = "week",
         date: str = "",
+        community: bool = True,
+        community_only: bool = False,
         distance: float = 0.0,
         clat: float = 42.2780,
         clng: float = -83.7382,
@@ -349,6 +358,8 @@ walker:pub MapSnapshot {
         price: str = "any",
         time: str = "week",
         date: str = "",
+        community: bool = True,
+        community_only: bool = False,
         distance: float = 0.0,
         clat: float = 42.2780,
         clng: float = -83.7382,
@@ -420,6 +431,17 @@ def:pub update_custom_profile(home_key: str, commute: str, interests: list[str])
 
 """Conversational refine: parse natural language into filters, merging with the prior view."""
 def:pub converse_query(text: str, prior: FilterSpec) -> FilterSpec;
+
+"""Post a neighbor-made event onto the shared graph. Shows up as a normal event node."""
+def:pub create_community_event(
+    name: str,
+    when: str,
+    desc: str = "",
+    category: str = "social",
+    posted_by: str = "Neighbor",
+    date: str = "",
+    price: float = 0.0
+) -> dict;
 
 """Persona catalogue with profile chips (shared demo personas only)."""
 def:pub list_personas() -> list[dict];

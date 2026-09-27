@@ -11,7 +11,7 @@ import from .ui.input { Input }
 import from .ui.slider { Slider }
 import from .ui.toggle_group { ToggleGroup, ToggleGroupItem }
 import from .pulse_theme { all_categories, kind_options, default_filters, kind_color }
-sv import from ..services.pulse { converse_query, FilterSpec }
+sv import from ..services.pulse { converse_query }
 
 def:pub FilterChip(
     label: str, active: bool, onToggle: Callable[[], None], color: str = ""
@@ -102,6 +102,8 @@ def:pub FilterBar(
                 "price": price,
                 "time": time,
                 "date": date,
+                "community": True,
+                "community_only": False,
                 "distance": distance,
                 "reply": ""
             };
@@ -113,6 +115,7 @@ def:pub FilterBar(
                     "price": spec.price,
                     "time": spec.time,
                     "date": spec.date or "",
+                    "community": spec.community,
                     "distance": spec.distance,
                     "reply": spec.reply,
                     "query": text

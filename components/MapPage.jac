@@ -77,6 +77,8 @@ def:pub MapPage(
             price=filters["price"] or "any",
             time=filters["time"] or "week",
             date=filters["date"] or "",
+            community=True,
+            community_only=False,
             distance=filters["distance"] or 0.0,
             clat=campus_lat(),
             clng=campus_lng(),

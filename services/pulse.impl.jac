@@ -1,6 +1,6 @@
 """Bodies for pulse.jac: seeding, filters, traversal and ranking."""
 
-import from services.event_dates { event_matches_date, parse_iso_date }
+import from services.event_dates { event_matches_date, parse_iso_date, label_for_iso }
 
 glob KIND_TOGGLES: list[str] = ["event", "organizer", "alert", "civic"];
 glob MAX_NODES: int = 90;
@@ -31,6 +31,12 @@ glob BROWSE_LENSES: list[dict] = [
         "desc": "Road closures, detours and council items."
     }
 ];
+
+glob POSTED_LENS: dict = {
+    "key": "lens-community",
+    "name": "Posted",
+    "sub": "community"
+};
 
 impl _has_llm -> bool {
     return pulse_llm.llm_enabled();
@@ -289,8 +295,18 @@ impl _venue_of(n: PulseNode) -> PulseNode | None {
     return vs[0] if len(vs) > 0 else None;
 }
 
+impl _is_neighbors_board(n: PulseNode) -> bool {
+    # Synthetic organizer used to hang community posts — never show on the graph.
+    return n.key == "o-community" or (
+        n.kind == "organizer" and n.sub == "community" and n.name == "Neighbors"
+    );
+}
+
 impl _passes(n: PulseNode, spec: FilterSpec, clat: float, clng: float) -> bool {
     if n.kind == "source" or n.kind == "place" {
+        return False;
+    }
+    if _is_neighbors_board(n) {
         return False;
     }
     if len(spec.kinds) > 0 and n.kind in KIND_TOGGLES and n.kind not in spec.kinds {
@@ -319,6 +335,14 @@ impl _passes(n: PulseNode, spec: FilterSpec, clat: float, clng: float) -> bool {
         }
     }
     if n.kind == "event" {
+        # Posted lane: only neighbor posts. Everywhere else: hide them.
+        if spec.community_only {
+            if not n.posted_by {
+                return False;
+            }
+        } elif n.posted_by {
+            return False;
+        }
         if spec.price == "free" and n.price > 0.0 { return False; }
         if spec.price == "under10" and n.price >= 10.0 { return False; }
     }
@@ -495,6 +519,9 @@ impl _browse_child_nodes(
             if len(out) >= MAX_BROWSE_CHILDREN {
                 break;
             }
+            if _is_neighbors_board(n) {
+                continue;
+            }
             if spec.date and not _has_dated_event(n, spec, clat, clng) {
                 continue;
             }
@@ -525,6 +552,27 @@ impl _browse_child_nodes(
                 break;
             }
             if not _passes(n, spec, clat, clng) {
+                continue;
+            }
+            k = n.key if n.key else jid(n);
+            if k not in seen {
+                seen.append(k);
+                out.append(n);
+            }
+        }
+        return out;
+    }
+    if focus_key == "lens-community" {
+        # Posted tab: only topics that already have neighbor posts.
+        for n in [hub -->][?:Category] {
+            has_post = False;
+            for e in [n <-:TaggedAs:<-][?:Event] {
+                if e.posted_by and _passes(e, spec, clat, clng) {
+                    has_post = True;
+                    break;
+                }
+            }
+            if not has_post {
                 continue;
             }
             k = n.key if n.key else jid(n);
@@ -575,6 +623,15 @@ impl _browse_child_nodes(
             if not _passes(e, spec, clat, clng) {
                 continue;
             }
+            if spec.community_only {
+                # Posted topics: events hang directly on the category node.
+                k = e.key if e.key else jid(e);
+                if k not in seen {
+                    seen.append(k);
+                    out.append(e);
+                }
+                continue;
+            }
             ven = _venue_of(e);
             if ven is not None {
                 k = ven.key if ven.key else jid(ven);
@@ -584,7 +641,7 @@ impl _browse_child_nodes(
                 }
             }
         }
-        if len(out) == 0 {
+        if len(out) == 0 and not spec.community_only {
             for e in [focus <-:TaggedAs:<-][?:Event] {
                 if not _passes(e, spec, clat, clng) {
                     continue;
@@ -619,6 +676,9 @@ impl _browse_child_nodes(
         return out;
     }
     if focus.kind == "organizer" {
+        if _is_neighbors_board(focus) {
+            return out;
+        }
         for e in [focus <-:OrganizedBy:<-][?:Event] {
             if not _passes(e, spec, clat, clng) {
                 continue;
@@ -654,7 +714,7 @@ impl _browse_child_nodes(
     if focus.kind in ["event", "alert", "civic"] {
         nbrs = [focus -->][?:PulseNode] + [focus <--][?:PulseNode];
         for nb in nbrs {
-            if nb.kind == "source" {
+            if nb.kind == "source" or _is_neighbors_board(nb) {
                 continue;
             }
             if nb.kind in ["event", "alert", "civic"] and not _passes(nb, spec, clat, clng) {
@@ -729,7 +789,7 @@ impl _bus_action_for(n: PulseNode, reasons: list[str]) -> str {
 
 impl _heuristic_filters(text: str, prior: FilterSpec) -> FilterSpec {
     t = text.lower();
-    spec = FilterSpec(query=text, categories=list(prior.categories), kinds=list(prior.kinds), price=prior.price, time=prior.time, date=prior.date, distance=prior.distance);
+    spec = FilterSpec(query=text, categories=list(prior.categories), kinds=list(prior.kinds), price=prior.price, time=prior.time, date=prior.date, community=prior.community, community_only=prior.community_only, distance=prior.distance);
     if "reset" in t or "start over" in t or "clear" in t {
         spec = FilterSpec(query=text);
     }
@@ -807,10 +867,13 @@ impl EgoSnapshot.expand {
     if depth >= self.hops {
         return;
     }
-    spec = FilterSpec(categories=self.categories, kinds=self.kinds, price=self.price, time=self.time, date=self.date, distance=self.distance);
+    spec = FilterSpec(categories=self.categories, kinds=self.kinds, price=self.price, time=self.time, date=self.date, community=self.community, community_only=self.community_only, distance=self.distance);
     nbrs = [here -->][?:PulseNode] + [here <--][?:PulseNode];
     fresh: list[PulseNode] = [];
     for nb in nbrs {
+        if _is_neighbors_board(nb) {
+            continue;
+        }
         nid = jid(nb);
         if nid not in self.depth_of {
             if len(self.out_nodes) >= MAX_NODES { continue; }
@@ -871,11 +934,23 @@ impl NetworkBrowse.start {
         price=self.price,
         time=self.time,
         date=self.date,
+        community=self.community,
+        community_only=self.community_only,
         distance=self.distance
     );
     fk = self.focus_key if self.focus_key else "root";
     nodes: list[GNode] = [];
     edges: list[GEdge] = [];
+
+    # Posted tab: only topic nodes (no Posted hub). User posts live under each topic.
+    if fk == "lens-community" {
+        kids = _browse_child_nodes(fk, spec, self.clat, self.clng);
+        for ch in kids {
+            nodes.append(_gnode(ch, 0));
+        }
+        report Snapshot(center=fk, nodes=nodes, edges=edges);
+        return;
+    }
 
     if fk == "root" {
         nodes.append(
@@ -1021,7 +1096,7 @@ impl MapSnapshot.pin {
         return;
     }
     on_route = here.key in self.route_keys;
-    spec = FilterSpec(categories=self.categories, kinds=self.kinds, price=self.price, time=self.time, date=self.date, distance=self.distance);
+    spec = FilterSpec(categories=self.categories, kinds=self.kinds, price=self.price, time=self.time, date=self.date, community=self.community, community_only=self.community_only, distance=self.distance);
     if on_route {
         # Always surface commute / home route impacts; still respect kind toggles.
         if len(self.kinds) > 0 and here.kind not in self.kinds {
@@ -1093,12 +1168,22 @@ impl GetDossier.read {
     nbrs: list[PulseNode] = [here -->][?:PulseNode] + [here <--][?:PulseNode];
     links: list[GNode] = [];
     for x in nbrs {
-        if x.kind != "source" { links.append(_gnode(x, 1)); }
+        if x.kind == "source" or _is_neighbors_board(x) {
+            continue;
+        }
+        links.append(_gnode(x, 1));
     }
+    real_orgs: list[Organizer] = [o for o in orgs if not _is_neighbors_board(o)];
     report Dossier(
         id=jid(here), key=here.key, name=here.name, kind=here.kind, desc=here.desc,
         when=here.when, venue=(ven.name if ven else ""), address=here.address,
-        organizer=(orgs[0].name if len(orgs) > 0 else ""), price=here.price,
+        organizer=(
+            here.posted_by
+            if here.posted_by
+            else (real_orgs[0].name if len(real_orgs) > 0 else "")
+        ),
+        posted_by=here.posted_by,
+        price=here.price,
         categories=_cats_of(here), source_name=here.source_name, source_url=here.source_url,
         lat=here.lat, lng=here.lng, links=links[:12]
     );
@@ -1331,12 +1416,103 @@ impl converse_query(text: str, prior: FilterSpec) -> FilterSpec {
             if not isinstance(dval, str) {
                 spec.date = prior.date;
             }
+            spec.community = prior.community;
             spec.query = text;
             if not spec.reply { spec.reply = "Updated your view."; }
             return spec;
         }
     }
     return _heuristic_filters(text, prior);
+}
+
+impl create_community_event(
+    name: str,
+    when: str,
+    desc: str,
+    category: str,
+    posted_by: str,
+    date: str,
+    price: float
+) -> dict {
+    hub = _ensure_seed();
+    title = name.strip();
+    if not title {
+        return {"ok": False, "error": "Give your event a name."};
+    }
+    when_txt = when.strip() if when else "TBA";
+    who = posted_by.strip() if posted_by else "Neighbor";
+    cat = category.strip().lower() if category else "social";
+    if cat not in CATEGORIES {
+        cat = "social";
+    }
+    day_n: int = datetime.now().weekday();
+    if date {
+        parsed = parse_iso_date(date);
+        if parsed is not None {
+            day_n = int(parsed.weekday());
+            if not when.strip() {
+                when_txt = label_for_iso(date);
+            }
+        }
+    }
+    slug_src = title.lower();
+    slug = "";
+    for ch in slug_src {
+        if len(slug) >= 28 {
+            break;
+        }
+        if (ch >= "a" and ch <= "z") or (ch >= "0" and ch <= "9") {
+            slug += ch;
+        } elif ch == " " or ch == "-" {
+            if len(slug) == 0 or slug[len(slug) - 1] != "-" {
+                slug += "-";
+            }
+        }
+    }
+    if len(slug) > 0 and slug[len(slug) - 1] == "-" {
+        slug = slug[: len(slug) - 1];
+    }
+    if not slug {
+        slug = "meetup";
+    }
+    stamp = datetime.now().strftime("%H%M%S");
+    ekey = f"user-evt-{slug}-{stamp}";
+    # Campus-ish default pin so map/network have a place to put it.
+    lat0: float = 42.2780;
+    lng0: float = -83.7382;
+    evt = Event(
+        key=ekey,
+        name=title,
+        kind="event",
+        desc=desc.strip() if desc else ("Posted by " + who + "."),
+        when=when_txt,
+        day=day_n,
+        price=max(0.0, price),
+        lat=lat0,
+        lng=lng0,
+        address="Ann Arbor",
+        source_name="Posted",
+        source_url="",
+        posted_by=who,
+        sub="community"
+    );
+    hub ++> evt;
+    # Hang posts on their topic only — no synthetic "Neighbors" organizer hub.
+    cat_n = _find_key("cat-" + cat);
+    if cat_n is not None {
+        evt +>:TaggedAs():+> cat_n;
+    }
+    try {
+        grant(evt, level=ReadPerm);
+    } except Exception {
+    }
+    return {
+        "ok": True,
+        "key": ekey,
+        "id": jid(evt),
+        "name": title,
+        "category": cat
+    };
 }
 
 impl list_personas() -> list[dict] {
@@ -1500,6 +1676,9 @@ impl onboarding_options() -> dict {
     places = [{"key": pl.key, "name": pl.name, "lat": pl.lat, "lng": pl.lng} for pl in [hub -->][?:Place]];
     orgs: list[dict] = [];
     for o in [hub -->][?:Organizer] {
+        if _is_neighbors_board(o) {
+            continue;
+        }
         cats: list[str] = [];
         for x in [o <-:OrganizedBy:<-][?:PulseNode] {
             for c in _cats_of(x) {

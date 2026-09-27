@@ -19,6 +19,7 @@ import from react { useEffect }
 import from .ui.input { Input }
 import from .ui.skeleton { Skeleton }
 import from .ui.button { Button }
+import from .ui.switch { Switch }
 import from .ui.select {
     Select,
     SelectTrigger,
@@ -27,7 +28,14 @@ import from .ui.select {
     SelectItem
 }
 import from .FilterBar { FilterBar }
-import from .pulse_theme { kind_color, kind_label, future_date_chips, default_filters }
+import from .pulse_theme {
+    kind_color,
+    kind_label,
+    node_fill_color,
+    future_date_chips,
+    default_filters,
+    all_categories
+}
 import from .net { with_timeout }
 
 glob CAMPUS_LAT: float = 42.2780;
@@ -48,6 +56,20 @@ glob ZOOM_MAX: float = 3.4;
 glob ZOOM_WHEEL_STEP: float = 0.00135;
 glob ZOOM_SPREAD_GAIN: float = 0.95;
 
+glob LENS_STARTERS: list[dict] = [
+    {"key": "all", "name": "All"},
+    {"key": "lens-places", "name": "Places"},
+    {"key": "lens-topics", "name": "Topics"},
+    {"key": "lens-who", "name": "Hosts"},
+    {"key": "lens-city", "name": "City"},
+    {"key": "lens-community", "name": "Posted"}
+];
+glob LENS_ONLY: list[str] = [
+    "lens-places",
+    "lens-topics",
+    "lens-who",
+    "lens-city"
+];
 glob LEGEND: list[str] = [
     "lens",
     "place",
@@ -55,21 +77,9 @@ glob LEGEND: list[str] = [
     "category",
     "organizer",
     "event",
+    "community",
     "alert",
     "civic"
-];
-glob LENS_STARTERS: list[dict] = [
-    {"key": "all", "name": "All"},
-    {"key": "lens-places", "name": "Places"},
-    {"key": "lens-topics", "name": "Topics"},
-    {"key": "lens-who", "name": "Hosts"},
-    {"key": "lens-city", "name": "City"}
-];
-glob LENS_ONLY: list[str] = [
-    "lens-places",
-    "lens-topics",
-    "lens-who",
-    "lens-city"
 ];
 glob NET_AUTO_SYNCED: bool = False;
 
@@ -97,6 +107,7 @@ sv import from ..services.pulse {
     SearchArchive,
     GetDossier,
     dossier_images,
+    create_community_event,
     Snapshot,
     GNode,
     GEdge,
@@ -116,6 +127,9 @@ def:pub DossierPanel(
         photosLoading: bool = True,
         photoReq: Ref[str] = Ref("");
 
+    is_neighbor_post: bool = (
+        len(dossier.posted_by) > 0 or dossier.source_name == "Posted"
+    );
     where_bits = dossier.venue;
     if dossier.address {
         where_bits = where_bits + (" · " if where_bits else "") + dossier.address;
@@ -125,6 +139,11 @@ def:pub DossierPanel(
     );
 
     async def load_photos {
+        if is_neighbor_post {
+            photos = [];
+            photosLoading = False;
+            return;
+        }
         nid = dossier.id;
         photoReq.current = nid;
         photosLoading = True;
@@ -145,7 +164,12 @@ def:pub DossierPanel(
     }
 
     can with [dossier.id] entry {
-        load_photos();
+        if is_neighbor_post {
+            photos = [];
+            photosLoading = False;
+        } else {
+            load_photos();
+        }
     }
 
     def bind_link(nid: str) -> Callable[[MouseEvent], None] {
@@ -155,7 +179,8 @@ def:pub DossierPanel(
 
     return
         <aside
-            className="absolute inset-y-0 right-0 z-30 flex w-full max-w-[min(100%,420px)] flex-col overflow-y-auto border-l border-border bg-background/95 pt-6 pb-6 pl-6 pr-6 shadow-xl backdrop-blur-sm animate-in fade-in slide-in-from-right-4 duration-300 sm:pl-8 sm:pr-8"
+            data-scroll-panel="1"
+            className="absolute inset-y-0 right-0 z-30 flex w-full max-w-[min(100%,420px)] flex-col overflow-y-auto overscroll-contain border-l border-border bg-background/95 pt-6 pb-6 pl-6 pr-6 shadow-xl backdrop-blur-sm animate-in fade-in slide-in-from-right-4 duration-300 sm:pl-8 sm:pr-8"
             role="dialog"
             aria-label="Node dossier"
         >
@@ -182,11 +207,13 @@ def:pub DossierPanel(
             <h2 className="mt-4 font-display text-2xl font-bold leading-tight tracking-tight text-foreground sm:text-[1.65rem]">
                 {dossier.name}
             </h2>
-            {photosLoading
+            {not is_neighbor_post
+                and photosLoading
                 and <div className="mt-4 overflow-hidden rounded-xl border border-border bg-muted/40">
                     <Skeleton className="h-40 w-full rounded-none"/>
                 </div>}
-            {not photosLoading
+            {not is_neighbor_post
+                and not photosLoading
                 and len(photos) > 0
                 and <div className="mt-4 flex flex-col gap-2">
                     <div
@@ -270,11 +297,12 @@ def:pub DossierPanel(
                 {dossier.organizer
                     and <div className="flex items-baseline gap-4">
                         <dt className="w-20 shrink-0 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
-                            {"Who"}
+                            {("Posted by" if is_neighbor_post else "Who")}
                         </dt>
                         <dd className="text-foreground">{dossier.organizer}</dd>
                     </div>}
-                {dossier.kind == "event"
+                {not is_neighbor_post
+                    and dossier.kind == "event"
                     and <div className="flex items-baseline gap-4">
                         <dt className="w-20 shrink-0 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
                             {"Price"}
@@ -286,7 +314,8 @@ def:pub DossierPanel(
                             {price_label}
                         </dd>
                     </div>}
-                {dossier.source_name
+                {not is_neighbor_post
+                    and dossier.source_name
                     and <div className="flex items-baseline gap-4">
                         <dt className="w-20 shrink-0 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
                             {"Source"}
@@ -321,7 +350,8 @@ def:pub DossierPanel(
                         </span>
                     }}
                 </div>}
-            {len(dossier.links) > 0
+            {not is_neighbor_post
+                and len(dossier.links) > 0
                 and <div className="mt-6 border-t border-border pt-5">
                     <span className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
                         {"Tied to"}
@@ -384,6 +414,16 @@ def:pub NetworkPage(
         selectedId: str = "",
         hoverId: str = "",
         showFilters: bool = False,
+        expandAll: bool = False,
+        showPost: bool = False,
+        postName: str = "",
+        postWhen: str = "",
+        postDesc: str = "",
+        postBy: str = "",
+        postCat: str = "social",
+        postDate: str = "",
+        postBusy: bool = False,
+        postMsg: str = "",
         panX: float = 0.0,
         panY: float = 0.0,
         zoom: float = 1.0,
@@ -540,6 +580,9 @@ def:pub NetworkPage(
     }
 
     async def browse_raw(want: str) -> any {
+        posted_lane: bool = (
+            activeTab == "lens-community" or want == "lens-community"
+        );
         res = root spawn NetworkBrowse(
             focus_key=want,
             categories=filters["categories"] or [],
@@ -547,6 +590,8 @@ def:pub NetworkPage(
             price=filters["price"] or "any",
             time=filters["time"] or "week",
             date=filters["date"] or "",
+            community=True,
+            community_only=posted_lane,
             distance=filters["distance"] or 0.0,
             clat=CAMPUS_LAT,
             clng=CAMPUS_LNG
@@ -572,6 +617,8 @@ def:pub NetworkPage(
         loading = True;
         error = "";
         activeTab = "all";
+        expandAll = False;
+        showPost = False;
         focusKeyRef.current = "root";
         rs: int = int(rootSeq.current) + 1;
         rootSeq.current = rs;
@@ -707,25 +754,38 @@ def:pub NetworkPage(
             loading = False;
             return;
         }
+        got: Snapshot = snap as Snapshot;
         # Seed the lens hub near center; kids fan around it with room.
+        # Posted has no hub — fan every topic node around the viewport center.
         cx: float = VIEW_W / 2.0;
         cy: float = VIEW_H / 2.0;
-        i: int = 0;
-        for g in snap.nodes {
-            if g.key == lens_key {
-                g.x = cx;
-                g.y = cy;
-            } else {
-                ang: float = (6.283185307 * float(i)) / float(
-                    max(len(snap.nodes) - 1, 1)
-                );
-                g.x = round(cx + 210.0 * (Math.cos(ang) as float), 1);
-                g.y = round(cy + 160.0 * (Math.sin(ang) as float), 1);
+        if lens_key == "lens-community" {
+            ncount: int = max(len(got.nodes), 1);
+            i: int = 0;
+            for g in got.nodes {
+                ang: float = (6.283185307 * float(i)) / float(ncount);
+                g.x = round(cx + 240.0 * (Math.cos(ang) as float), 1);
+                g.y = round(cy + 180.0 * (Math.sin(ang) as float), 1);
                 i += 1;
             }
+        } else {
+            i: int = 0;
+            for g in got.nodes {
+                if g.key == lens_key {
+                    g.x = cx;
+                    g.y = cy;
+                } else {
+                    ang: float = (6.283185307 * float(i)) / float(
+                        max(len(got.nodes) - 1, 1)
+                    );
+                    g.x = round(cx + 210.0 * (Math.cos(ang) as float), 1);
+                    g.y = round(cy + 160.0 * (Math.sin(ang) as float), 1);
+                    i += 1;
+                }
+            }
         }
-        nodes = snap.nodes;
-        edges = snap.edges;
+        nodes = got.nodes;
+        edges = got.edges;
         expandedKeys = [lens_key];
         focusKey = lens_key;
         focusName = lens_name;
@@ -741,6 +801,10 @@ def:pub NetworkPage(
 
     async def switch_tab(tab_key: str, tab_name: str) {
         reset_camera();
+        expandAll = False;
+        if tab_key != "lens-community" {
+            showPost = False;
+        }
         if tab_key == "all" {
             await load_overview();
         } else {
@@ -752,81 +816,64 @@ def:pub NetworkPage(
         await load_overview();
     }
 
-    async def expand_into(key: str) {
-        if key == "" or key == "root" {
-            return;
-        }
-        es: int = int(expandSeq.current) + 1;
-        expandSeq.current = es;
-        rs_at_start: int = int(rootSeq.current);
-        loading = True;
-        snap = await fetch_browse(key);
-        if int(expandSeq.current) != es or int(rootSeq.current) != rs_at_start {
-            return;
-        }
-        if snap is None {
-            loading = False;
-            return;
-        }
-        # Parent live position (seed new kids nearby).
+    def parent_xy(key: str, cur: list[GNode]) -> list[float] {
         px: float = VIEW_W / 2.0;
         py: float = VIEW_H / 2.0;
         by_id: any = simById.current;
-        parent_id: str = "";
-        for n in nodes {
-            if n.key == key {
-                parent_id = n.id;
-                if by_id {
-                    try {
-                        d: any = by_id[n.id];
-                        if d and d["x"] is not None {
-                            px = float(d["x"]);
-                            py = float(d["y"]);
-                        } else {
-                            px = n.x;
-                            py = n.y;
-                        }
-                    } except Exception {
-                        px = n.x;
-                        py = n.y;
+        for n in cur {
+            if n.key != key {
+                continue;
+            }
+            if by_id {
+                try {
+                    d: any = by_id[n.id];
+                    if d and d["x"] is not None {
+                        return [float(d["x"]), float(d["y"])];
                     }
-                } else {
-                    px = n.x;
-                    py = n.y;
+                } except Exception {
+                    _ = None;
                 }
             }
+            return [n.x, n.y];
         }
+        return [px, py];
+    }
+
+    def merge_snap(
+        key: str, snap: Snapshot, cur_nodes: list[GNode], cur_edges: list[GEdge]
+    ) -> dict[str, any] {
+        xy = parent_xy(key, cur_nodes);
+        px: float = xy[0];
+        py: float = xy[1];
         have: dict[str, bool] = {};
-        for n in nodes {
+        for n in cur_nodes {
             have[n.id] = True;
             if n.key {
                 have[n.key] = True;
             }
         }
         edge_have: dict[str, bool] = {};
-        for e in edges {
+        for e in cur_edges {
             edge_have[e.source + "|" + e.target] = True;
             edge_have[e.target + "|" + e.source] = True;
         }
         merged_nodes: list[GNode] = [];
-        for n in nodes {
+        for n in cur_nodes {
             merged_nodes = merged_nodes + [n];
         }
         merged_edges: list[GEdge] = [];
-        for e in edges {
+        for e in cur_edges {
             merged_edges = merged_edges + [e];
         }
         i: int = 0;
         for g in snap.nodes {
             if g.key == key {
-                # Ensure focus node exists (first expand from search).
                 if g.key not in have and g.id not in have {
                     g.x = px;
                     g.y = py;
                     merged_nodes = merged_nodes + [g];
                     have[g.id] = True;
                     have[g.key] = True;
-                    parent_id = g.id;
                 }
                 continue;
             }
@@ -861,12 +908,274 @@ def:pub NetworkPage(
             edge_have[ek] = True;
             edge_have[e.target + "|" + e.source] = True;
         }
-        nodes = merged_nodes;
-        edges = merged_edges;
+        return {"nodes": merged_nodes, "edges": merged_edges};
+    }
+
+    def expand_child_keys(
+        hub_key: str,
+        cur: list[GNode],
+        cur_edges: list[GEdge],
+        include_leaves: bool = False
+    ) -> list[str] {
+        hub_id: str = "";
+        for n in cur {
+            if n.key == hub_key {
+                hub_id = n.id;
+            }
+        }
+        if not hub_id {
+            return [];
+        }
+        out: list[str] = [];
+        seen: dict[str, bool] = {};
+        for e in cur_edges {
+            other: str = "";
+            if e.source == hub_id {
+                other = e.target;
+            } elif e.target == hub_id {
+                other = e.source;
+            } else {
+                continue;
+            }
+            for n in cur {
+                if n.id != other {
+                    continue;
+                }
+                if not n.key or n.key == hub_key {
+                    continue;
+                }
+                if is_leaf_kind(n.kind) {
+                    if not include_leaves {
+                        continue;
+                    }
+                } elif not n.expandable {
+                    continue;
+                }
+                if n.key in seen {
+                    continue;
+                }
+                seen[n.key] = True;
+                out = out + [n.key];
+            }
+        }
+        return out;
+    }
+
+    def canvas_hub_seeds(hub_key: str, cur: list[GNode]) -> list[str] {
+        # Posted has no hub edges — open every topic already on the canvas.
+        out: list[str] = [];
+        seen: dict[str, bool] = {};
+        for n in cur {
+            if not n.key or n.key == hub_key {
+                continue;
+            }
+            if is_leaf_kind(n.kind) or not n.expandable {
+                continue;
+            }
+            if n.key in seen {
+                continue;
+            }
+            seen[n.key] = True;
+            out = out + [n.key];
+        }
+        return out;
+    }
+
+    async def expand_into(key: str) {
+        if key == "" or key == "root" {
+            return;
+        }
+        es: int = int(expandSeq.current) + 1;
+        expandSeq.current = es;
+        rs_at_start: int = int(rootSeq.current);
+        loading = True;
+        snap = await fetch_browse(key);
+        if int(expandSeq.current) != es or int(rootSeq.current) != rs_at_start {
+            return;
+        }
+        if snap is None {
+            loading = False;
+            return;
+        }
+        merged = merge_snap(key, snap, nodes, edges);
+        nodes = merged["nodes"];
+        edges = merged["edges"];
         if not key_in_expanded(key) {
             expandedKeys = expandedKeys + [key];
         }
         loading = False;
+    }
+
+    async def open_all_connections(hub: str = "") {
+        want: str = hub if hub else focusKey;
+        if want == "" or want == "root" {
+            return;
+        }
+        es: int = int(expandSeq.current) + 1;
+        expandSeq.current = es;
+        rs_at_start: int = int(rootSeq.current);
+        loading = True;
+        cur_nodes: list[GNode] = [];
+        for n in nodes {
+            cur_nodes = cur_nodes + [n];
+        }
+        cur_edges: list[GEdge] = [];
+        for e in edges {
+            cur_edges = cur_edges + [e];
+        }
+        done: dict[str, bool] = {};
+        opened: list[str] = [];
+        for k in expandedKeys {
+            done[k] = True;
+            opened = opened + [k];
+        }
+        # Two hops from focus. Leaves (City alerts) still expand once to show ties.
+        queue: list[str] = [want];
+        depth_of: dict[str, int] = {};
+        depth_of[want] = 0;
+        qi: int = 0;
+        while qi < len(queue) {
+            if int(expandSeq.current) != es or int(rootSeq.current) != rs_at_start {
+                return;
+            }
+            if len(cur_nodes) >= 90 {
+                break;
+            }
+            k: str = queue[qi];
+            qi += 1;
+            dpth: int = depth_of[k] if k in depth_of else 0;
+            if dpth > 2 {
+                continue;
+            }
+            if k not in done {
+                snap = await fetch_browse(k);
+                if int(expandSeq.current) != es or int(rootSeq.current) != rs_at_start {
+                    return;
+                }
+                if snap is not None {
+                    merged = merge_snap(k, snap, cur_nodes, cur_edges);
+                    cur_nodes = merged["nodes"];
+                    cur_edges = merged["edges"];
+                    done[k] = True;
+                    opened = opened + [k];
+                }
+            }
+            if dpth >= 2 {
+                continue;
+            }
+            cks: list[str] = expand_child_keys(
+                k, cur_nodes, cur_edges, include_leaves=(dpth == 0)
+            );
+            if len(cks) == 0 and dpth == 0 {
+                cks = canvas_hub_seeds(k, cur_nodes);
+            }
+            for ck in cks {
+                if ck in depth_of {
+                    continue;
+                }
+                depth_of[ck] = dpth + 1;
+                queue = queue + [ck];
+            }
+        }
+        if int(expandSeq.current) != es or int(rootSeq.current) != rs_at_start {
+            return;
+        }
+        nodes = cur_nodes;
+        edges = cur_edges;
+        expandedKeys = opened;
+        loading = False;
+    }
+
+    async def close_all_connections {
+        hub: str = focusKey;
+        if hub == "" or hub == "root" {
+            return;
+        }
+        es: int = int(expandSeq.current) + 1;
+        expandSeq.current = es;
+        rs_at_start: int = int(rootSeq.current);
+        loading = True;
+        snap = await fetch_browse(hub);
+        if int(expandSeq.current) != es or int(rootSeq.current) != rs_at_start {
+            return;
+        }
+        if snap is None {
+            loading = False;
+            return;
+        }
+        # Keep trail hubs already on-canvas; rebuild from the focus snapshot.
+        keep: list[GNode] = [];
+        keep_ids: dict[str, bool] = {};
+        for step in trail {
+            sk: str = str(step["key"]);
+            if sk == hub {
+                continue;
+            }
+            for n in nodes {
+                if n.key == sk and n.id not in keep_ids {
+                    keep = keep + [n];
+                    keep_ids[n.id] = True;
+                    if n.key {
+                        keep_ids[n.key] = True;
+                    }
+                }
+            }
+        }
+        for g in snap.nodes {
+            if g.id in keep_ids or g.key in keep_ids {
+                continue;
+            }
+            keep = keep + [g];
+            keep_ids[g.id] = True;
+            if g.key {
+                keep_ids[g.key] = True;
+            }
+        }
+        new_edges: list[GEdge] = [];
+        edge_have: dict[str, bool] = {};
+        for e in snap.edges {
+            ek = e.source + "|" + e.target;
+            if ek in edge_have {
+                continue;
+            }
+            src_ok = False;
+            tgt_ok = False;
+            for n in keep {
+                if n.id == e.source {
+                    src_ok = True;
+                }
+                if n.id == e.target {
+                    tgt_ok = True;
+                }
+            }
+            if src_ok and tgt_ok {
+                new_edges = new_edges + [e];
+                edge_have[ek] = True;
+            }
+        }
+        nodes = keep;
+        edges = new_edges;
+        exp: list[str] = [];
+        for step in trail {
+            sk2: str = str(step["key"]);
+            if sk2 and sk2 != "root" {
+                exp = exp + [sk2];
+            }
+        }
+        if hub not in exp {
+            exp = exp + [hub];
+        }
+        expandedKeys = exp;
+        loading = False;
+    }
+
+    async def set_expand_all(on: bool) {
+        expandAll = on;
+        if on {
+            await open_all_connections(focusKey);
+        } else {
+            await close_all_connections();
+        }
     }
 
     async def reload_active_tab {
@@ -1303,7 +1612,30 @@ def:pub NetworkPage(
         return (Math.sqrt(dx * dx + dy * dy) as float);
     }
 
+    def wheel_over_scroll_panel(e: any) -> bool {
+        try {
+            el: any = e.target;
+            hops: int = 0;
+            while el and hops < 48 {
+                if el.getAttribute {
+                    mark: any = el.getAttribute("data-scroll-panel");
+                    if mark == "1" or mark == "true" {
+                        return True;
+                    }
+                }
+                el = el.parentElement;
+                hops += 1;
+            }
+        } except Exception {
+        }
+        return False;
+    }
+
     def on_wheel_zoom(e: any) {
+        # Let dossier / search panels keep trackpad scroll.
+        if wheel_over_scroll_panel(e) {
+            return;
+        }
         try {
             e.preventDefault();
         } except Exception {
@@ -1660,6 +1992,9 @@ def:pub NetworkPage(
         }
         if key_in_expanded(found_key) {
             set_focus(found_key, found_name);
+            if expandAll {
+                open_all_connections(found_key);
+            }
             return;
         }
         drill_to(found_key, found_name);
@@ -1695,10 +2030,12 @@ def:pub NetworkPage(
         query = "";
     }
 
-    def drill_to(key: str, name: str) {
+    async def drill_to(key: str, name: str) {
         set_focus(key, name);
-        if key != "root" and not key_in_expanded(key) {
-            expand_into(key);
+        if expandAll {
+            await open_all_connections(key);
+        } elif key != "root" and not key_in_expanded(key) {
+            await expand_into(key);
         }
     }
 
@@ -1915,6 +2252,38 @@ def:pub NetworkPage(
         }
     }
 
+    async def submit_community_event {
+        if postBusy {
+            return;
+        }
+        postBusy = True;
+        postMsg = "";
+        try {
+            res: dict = await create_community_event(
+                postName,
+                postWhen,
+                postDesc,
+                postCat,
+                postBy if postBy else "Neighbor",
+                postDate,
+                0.0
+            );
+            if res.get("ok") {
+                postMsg = "Posted — open your topic under Posted.";
+                postName = "";
+                postWhen = "";
+                postDesc = "";
+                showPost = False;
+                await switch_tab("lens-community", "Posted");
+            } else {
+                postMsg = str(res.get("error") or "Could not post that event.");
+            }
+        } except Exception {
+            postMsg = "Could not post that event.";
+        }
+        postBusy = False;
+    }
+
     dateChips: list[dict] = future_date_chips(14);
     selectedDate: str = filters["date"] or "";
     dayValue: str = selectedDate if selectedDate else "any";
@@ -2062,7 +2431,7 @@ def:pub NetworkPage(
                                         stroke={(
                                             "#a8a29e"
                                                 if n.kind == "lens"
-                                                else kind_color(n.kind)
+                                                else node_fill_color(n.kind, n.sub)
                                         )}
                                         strokeWidth={1.5 * gs}
                                         strokeDasharray="3 4"
@@ -2070,7 +2439,7 @@ def:pub NetworkPage(
                                 }}
                                 <circle
                                     r={draw_radius(n.depth, n.kind)}
-                                    fill={kind_color(n.kind)}
+                                    fill={node_fill_color(n.kind, n.sub)}
                                     fillOpacity={1.0}
                                     stroke={(
                                         "#292524"
@@ -2178,7 +2547,8 @@ def:pub NetworkPage(
                                 </div>}
                             {len(results) > 0
                                 and <div
-                                    className="absolute left-0 right-0 top-11 z-30 max-h-72 overflow-y-auto rounded-lg border bg-card shadow-lg"
+                                    data-scroll-panel="1"
+                                    className="absolute left-0 right-0 top-11 z-30 max-h-72 overflow-y-auto overscroll-contain rounded-lg border bg-card shadow-lg"
                                 >
                                     {for r in results {
                                         <button
@@ -2226,34 +2596,156 @@ def:pub NetworkPage(
                                 </button>
                             }}
                         </div>
-                        <div className="mt-2 flex items-center gap-2">
-                            <span className="kicker shrink-0 text-muted-foreground">
-                                {"Day"}
-                            </span>
-                            <Select
-                                value={dayValue}
-                                onValueChange={lambda (v: str) { on_day_select(v); }}
-                            >
-                                <SelectTrigger
-                                    className="h-8 w-[9.5rem] bg-card text-xs"
-                                    aria-label="Filter by day"
-                                    size="sm"
+                        <div className="mt-2 flex flex-wrap items-center gap-3">
+                            <div className="flex items-center gap-2">
+                                <span className="kicker shrink-0 text-muted-foreground">
+                                    {"Day"}
+                                </span>
+                                <Select
+                                    value={dayValue}
+                                    onValueChange={lambda (v: str) { on_day_select(v); }}
                                 >
-                                    <SelectValue placeholder="Any day"/>
-                                </SelectTrigger>
-                                <SelectContent position="popper" align="start">
-                                    <SelectItem value="any">{"Any day"}</SelectItem>
-                                    {for chip in dateChips {
-                                        <SelectItem
-                                            key={chip["iso"]}
-                                            value={str(chip["iso"])}
-                                        >
-                                            {str(chip["label"])}
-                                        </SelectItem>
+                                    <SelectTrigger
+                                        className="h-8 w-[9.5rem] bg-card text-xs"
+                                        aria-label="Filter by day"
+                                        size="sm"
+                                    >
+                                        <SelectValue placeholder="Any day"/>
+                                    </SelectTrigger>
+                                    <SelectContent position="popper" align="start">
+                                        <SelectItem value="any">{"Any day"}</SelectItem>
+                                        {for chip in dateChips {
+                                            <SelectItem
+                                                key={chip["iso"]}
+                                                value={str(chip["iso"])}
+                                            >
+                                                {str(chip["label"])}
+                                            </SelectItem>
+                                        }}
+                                    </SelectContent>
+                                </Select>
+                            </div>
+                            <label
+                                className="flex items-center gap-2 text-xs text-muted-foreground"
+                            >
+                                <Switch
+                                    checked={expandAll}
+                                    disabled={loading or focusKey == "root"}
+                                    onCheckedChange={lambda (on: bool) {
+                                        set_expand_all(on);
                                     }}
-                                </SelectContent>
-                            </Select>
+                                    aria-label="Open all connections"
+                                    size="sm"
+                                />
+                                <span>
+                                    {(
+                                        "All connections"
+                                            if expandAll
+                                            else "Open all"
+                                    )}
+                                </span>
+                            </label>
+                            {activeTab == "lens-community"
+                                and <Button
+                                    type="button"
+                                    size="sm"
+                                    variant="outline"
+                                    className="h-8 text-xs"
+                                    onClick={lambda (e: MouseEvent) {
+                                        showPost = not showPost;
+                                    }}
+                                >
+                                    {"Post an event"}
+                                </Button>}
                         </div>
+                        {activeTab == "lens-community"
+                            and showPost
+                            and <div
+                                className="mt-2 flex max-w-md flex-col gap-2 rounded-lg border bg-card/95 pt-3 pb-3 pl-3 pr-3 shadow-sm"
+                            >
+                                <span className="kicker text-muted-foreground">
+                                    {"Share something for everyone"}
+                                </span>
+                                <Input
+                                    value={postName}
+                                    onChange={lambda (e: ChangeEvent) {
+                                        postName = e.target.value;
+                                    }}
+                                    placeholder="Event name"
+                                    className="h-8 text-sm"
+                                />
+                                <Input
+                                    value={postWhen}
+                                    onChange={lambda (e: ChangeEvent) {
+                                        postWhen = e.target.value;
+                                    }}
+                                    placeholder="When (e.g. Sat 7pm · Kerrytown)"
+                                    className="h-8 text-sm"
+                                />
+                                <Input
+                                    value={postDesc}
+                                    onChange={lambda (e: ChangeEvent) {
+                                        postDesc = e.target.value;
+                                    }}
+                                    placeholder="Short description"
+                                    className="h-8 text-sm"
+                                />
+                                <div className="flex flex-wrap gap-2">
+                                    <Input
+                                        value={postBy}
+                                        onChange={lambda (e: ChangeEvent) {
+                                            postBy = e.target.value;
+                                        }}
+                                        placeholder="Your name"
+                                        className="h-8 min-w-[8rem] flex-1 text-sm"
+                                    />
+                                    <Select
+                                        value={postCat}
+                                        onValueChange={lambda (v: str) {
+                                            if v {
+                                                postCat = v;
+                                            }
+                                        }}
+                                    >
+                                        <SelectTrigger className="h-8 w-[8.5rem] text-xs" size="sm">
+                                            <SelectValue placeholder="Topic"/>
+                                        </SelectTrigger>
+                                        <SelectContent>
+                                            {for c in all_categories() {
+                                                <SelectItem key={c} value={c}>
+                                                    {c}
+                                                </SelectItem>
+                                            }}
+                                        </SelectContent>
+                                    </Select>
+                                </div>
+                                <div className="flex items-center gap-2">
+                                    <Button
+                                        type="button"
+                                        size="sm"
+                                        disabled={postBusy or not postName.strip()}
+                                        onClick={lambda (e: MouseEvent) {
+                                            submit_community_event();
+                                        }}
+                                    >
+                                        {"Posting…" if postBusy else "Publish"}
+                                    </Button>
+                                    <Button
+                                        type="button"
+                                        size="sm"
+                                        variant="ghost"
+                                        onClick={lambda (e: MouseEvent) {
+                                            showPost = False;
+                                        }}
+                                    >
+                                        {"Cancel"}
+                                    </Button>
+                                </div>
+                                {postMsg
+                                    and <p className="text-[11px] text-muted-foreground">
+                                        {postMsg}
+                                    </p>}
+                            </div>}
                     </div>
                 </div>
                 {#* zoom controls *#}
@@ -2316,7 +2808,8 @@ def:pub NetworkPage(
             </div>
             {#* ---------------- side column: path, filters ---------------- *#}
             <aside
-                className="relative z-20 flex w-full flex-col gap-5 border-t bg-background pt-6 pb-6 pl-6 pr-6 lg:w-[360px] lg:border-l lg:border-t-0"
+                data-scroll-panel="1"
+                className="relative z-20 flex w-full flex-col gap-5 overflow-y-auto overscroll-contain border-t bg-background pt-6 pb-6 pl-6 pr-6 lg:max-h-[calc(100svh-230px)] lg:w-[360px] lg:border-l lg:border-t-0"
             >
                 <div className="flex flex-col gap-3">
                     <div className="flex items-baseline justify-between">
