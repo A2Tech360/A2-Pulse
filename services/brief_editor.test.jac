@@ -149,14 +149,14 @@ test "unlabeled reasons read as sentences and mid-sentence times are lowercase" 
     assert _mid_sentence("Thu all day") == "Thu all day";
 }
 
-test "the Editor is told the Monday the brief is for, never today's date" {
+test "the Editor is told the Monday the brief is for (next Monday on weekends)" {
     mock(["Good morning Jordan. " + " ".join(["word"] * 120)]);
     out = edit_brief("Jordan", "Jordan", ITEMS, True, date(2026, 9, 26));
     pulse_llm.set_llm(None);
-    assert out["input"]["week_of"] == "Monday, September 21, 2026", out["input"];
+    assert out["input"]["week_of"] == "Monday, September 28, 2026", out["input"];
     assert "today" not in dict(out["input"]);
     sunday = edit_brief("Jordan", "Jordan", ITEMS, False, date(2026, 9, 27));
-    assert sunday["input"]["week_of"] == "Monday, September 21, 2026";
+    assert sunday["input"]["week_of"] == "Monday, September 28, 2026";
     monday = edit_brief("Jordan", "Jordan", ITEMS, False, date(2026, 9, 28));
     assert monday["input"]["week_of"] == "Monday, September 28, 2026";
 }

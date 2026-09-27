@@ -17,6 +17,7 @@ import contextlib;
 import from pathlib { Path }
 import from datetime { datetime }
 import from services { pulse_llm }
+import from services.brief_dates { brief_day_index, brief_week_label }
 import from services.pulse {
     GenerateBrief, UserProfile, PulseNode, Place, Venue, Category, Organizer, Alert,
     LivesAt, CommutesVia, InterestedIn, Follows, AffectsRoute, Near, HostedAt, TaggedAs, OrganizedBy,
@@ -230,7 +231,7 @@ def evaluate(persona: str, why: str, today: int) -> dict[str, any] {
         "ok": len(home_closures) == 0 or len(in_top) > 0,
         "detail": ("none in the home neighborhood" if len(home_closures) == 0 else "in: " + (", ".join(in_top) or "none") + ("; left out: " + ", ".join(left_out) if left_out else ""))
     });
-    (errors, warnings) = check_rules(prof, t["scored"], datetime.now().weekday());
+    (errors, warnings) = check_rules(prof, t["scored"], today);
     checks.append({"name": "Rules apply", "ok": len(errors) == 0, "detail": "; ".join(errors[:4]) + (f" (+{len(errors) - 4} more)" if len(errors) > 4 else "")});
 
     return {
@@ -258,6 +259,7 @@ def write_report(results: list[dict[str, any]], mode: str) -> str {
     out: list[str] = [
         "# Brief eval", "",
         f"- Run: {datetime.now().isoformat(timespec='seconds')} ({datetime.now().strftime('%A')}; the 'soon' rule and date wording depend on the weekday)",
+        f"- Brief week: {brief_week_label(datetime.now())}",
         f"- Mode: {mode}",
         f"- Editor used the LLM for {len([r for r in results if r['trace']['editor']['mode'] == 'llm'])}/{len(results)} briefs",
         f"- Result: {len([r for r in results if r['ok']])}/{len(results)} profiles pass", "",
@@ -319,7 +321,7 @@ with entry {
         print("--require-llm: the LLM is off, so this run would only test the templates. Set LLM_MODEL and its key.");
         sys.exit(3);
     }
-    today = datetime.now().weekday();
+    today = brief_day_index(datetime.now());
     profiles: list[dict[str, any]] = SEEDED + SYNTHETIC;
     results = [evaluate(str(p["persona"]), str(p["why"]), today) for p in profiles];
     for r in results {

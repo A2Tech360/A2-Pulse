@@ -7,9 +7,10 @@ goes through speakable() before it is returned, stored or spoken.
 
 import re;
 import time;
-import from datetime { date, timedelta }
+import from datetime { date }
 import from services { pulse_llm }
 import from services.speakable { speakable, word_count }
+import from services.brief_dates { brief_monday }
 
 glob TARGET_MIN_WORDS: int = 140;
 glob TARGET_MAX_WORDS: int = 160;
@@ -186,8 +187,8 @@ def editor_items_text(items: list[dict[str, any]]) -> str {
 Returns the spoken text plus everything the debug trace needs."""
 def edit_brief(first_name: str, profile_line: str, items: list[dict[str, any]], use_ai: bool = True, today: date | None = None) -> dict[str, any] {
     ref = today or date.today();
-    # The brief is for its week's Monday; item days (Mon..Sun) are days of that week.
-    monday = ref - timedelta(days=ref.weekday());
+    # The brief is for its week's Monday (next Monday on weekends); item days are days of that week.
+    monday = brief_monday(ref);
     week_of = monday.strftime("%A, %B ") + str(monday.day) + monday.strftime(", %Y");
     items_text = editor_items_text(items);
     out: dict[str, any] = {
@@ -226,7 +227,7 @@ def edit_brief(first_name: str, profile_line: str, items: list[dict[str, any]], 
     }
     if out["mode"] != "llm" {
         t0 = time.perf_counter();
-        out["spoken"] = template_brief(first_name, items, ref);
+        out["spoken"] = template_brief(first_name, items, monday);
         out["template_ms"] = round((time.perf_counter() - t0) * 1000, 2);
     }
     out["words"] = word_count(out["spoken"]);

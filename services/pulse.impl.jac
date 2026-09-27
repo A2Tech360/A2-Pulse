@@ -1114,7 +1114,8 @@ impl GenerateBrief.start {
 impl GenerateBrief.rank {
     t_start = time.perf_counter();
     trace = new_trace(here.persona);
-    today = datetime.now().weekday();
+    # Day index within the brief week (-2 Sat, -1 Sun: weekend briefs are for next week).
+    today = brief_day_index(datetime.now());
     # Profile agent: read the persona node and its edges.
     homes = [here ->:LivesAt:->][?:Place];
     route = [here ->:CommutesVia:->][?:Place];
