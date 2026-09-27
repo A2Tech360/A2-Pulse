@@ -49,26 +49,8 @@ glob LIGHT_MAP_STYLE: list[dict] = [
 ];
 
 def emoji_for(kind: str) -> str {
-    match kind {
-        case "event":
-            return "🎵";
-        case "venue":
-            return "🎭";
-        case "organizer":
-            return "👥";
-        case "alert":
-            return "🚧";
-        case "civic":
-            return "🏛️";
-        case "category":
-            return "📌";
-        case "source":
-            return "📡";
-        case "campus" | "place":
-            return "📍";
-        case _:
-            return KIND_EMOJI[kind] if kind in KIND_EMOJI else "📍";
-    }
+    # Dict lookup, not `match`: Jac 0.34 compiles client-side match to an empty function.
+    return KIND_EMOJI[kind] if kind in KIND_EMOJI else "📍";
 }
 
 def:pub map_style_for(dark: bool) -> list[dict] {
