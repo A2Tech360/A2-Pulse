@@ -302,6 +302,125 @@ impl _is_neighbors_board(n: PulseNode) -> bool {
     );
 }
 
+impl _org_matches_categories(n: PulseNode, cats: list[str]) -> bool {
+    if len(cats) == 0 {
+        return True;
+    }
+    for e in [n <-:OrganizedBy:<-][?:Event] {
+        for c in _cats_of(e) {
+            if c in cats {
+                return True;
+            }
+        }
+    }
+    for a in [n <-:OrganizedBy:<-][?:Alert] {
+        for c in _cats_of(a) {
+            if c in cats {
+                return True;
+            }
+        }
+    }
+    for c in [n <-:OrganizedBy:<-][?:CivicItem] {
+        for cat in _cats_of(c) {
+            if cat in cats {
+                return True;
+            }
+        }
+    }
+    return False;
+}
+
+impl _pin_haystack(n: PulseNode) -> str {
+    bits: str = (n.name or "") + " " + (n.desc or "") + " " + (n.address or "");
+    ven = _venue_of(n);
+    if ven is not None {
+        bits = bits + " " + (ven.name or "") + " " + (ven.address or "");
+    }
+    return bits.lower();
+}
+
+impl _is_generic_city_address(addr: str) -> bool {
+    a = (addr or "").strip().lower();
+    return a == "" or a == "ann arbor" or a == "ann arbor, mi" or a == "ann arbor michigan";
+}
+
+impl _match_landmark(hay: str) -> dict | None {
+    # Longer aliases first so "the diag" wins over bare fragments.
+    best: dict | None = None;
+    best_len: int = 0;
+    for lm in LANDMARKS {
+        for alias in (lm["aliases"] as list[str]) {
+            a = alias.lower().strip();
+            if not a {
+                continue;
+            }
+            if a in hay and len(a) > best_len {
+                best = lm;
+                best_len = len(a);
+            }
+        }
+    }
+    if best is not None {
+        return {
+            "lat": float(best["lat"]),
+            "lng": float(best["lng"]),
+            "label": str(best["name"])
+        };
+    }
+    for v in VENUES {
+        name = str(v["name"]).lower();
+        if name and name in hay {
+            return {
+                "lat": float(v["lat"]),
+                "lng": float(v["lng"]),
+                "label": str(v["name"])
+            };
+        }
+    }
+    for p in PLACES {
+        name = str(p["name"]).lower();
+        if name and name in hay {
+            return {
+                "lat": float(p["lat"]),
+                "lng": float(p["lng"]),
+                "label": str(p["name"])
+            };
+        }
+    }
+    return None;
+}
+
+impl _resolve_pin_coords(n: PulseNode) -> dict | None {
+    # Prefer clear place language in the listing ("Burns Park", "the Diag")
+    # over a loosely linked venue that may not match the title.
+    text_hay = ((n.name or "") + " " + (n.desc or "") + " " + (n.address or "")).lower();
+    hit = _match_landmark(text_hay);
+    if hit is not None {
+        return hit;
+    }
+    ven = _venue_of(n);
+    if ven is not None and ven.lat != 0.0 and ven.lng != 0.0 {
+        return {"lat": ven.lat, "lng": ven.lng, "label": ven.name or ven.address};
+    }
+    hay = _pin_haystack(n);
+    hit2 = _match_landmark(hay);
+    if hit2 is not None {
+        return hit2;
+    }
+    # Keep seeded / ingested coords when they are real (not the community placeholder).
+    if n.lat != 0.0 and n.lng != 0.0 {
+        if n.posted_by and _is_generic_city_address(n.address) {
+            return None;
+        }
+        return {
+            "lat": n.lat,
+            "lng": n.lng,
+            "label": n.address if n.address else n.name
+        };
+    }
+    return None;
+}
+
 impl _passes(n: PulseNode, spec: FilterSpec, clat: float, clng: float) -> bool {
     if n.kind == "source" or n.kind == "place" {
         return False;
@@ -314,6 +433,11 @@ impl _passes(n: PulseNode, spec: FilterSpec, clat: float, clng: float) -> bool {
     }
     if n.kind == "category" {
         return len(spec.categories) == 0 or n.name in spec.categories;
+    }
+    if n.kind == "organizer" {
+        if len(spec.categories) > 0 and not _org_matches_categories(n, spec.categories) {
+            return False;
+        }
     }
     if n.kind in ["event", "alert", "civic"] {
         if len(spec.categories) > 0 {
@@ -335,12 +459,12 @@ impl _passes(n: PulseNode, spec: FilterSpec, clat: float, clng: float) -> bool {
         }
     }
     if n.kind == "event" {
-        # Posted lane: only neighbor posts. Everywhere else: hide them.
+        # Posted lane: only neighbor posts. Elsewhere: include them when community is on.
         if spec.community_only {
             if not n.posted_by {
                 return False;
             }
-        } elif n.posted_by {
+        } elif n.posted_by and not spec.community {
             return False;
         }
         if spec.price == "free" and n.price > 0.0 { return False; }
@@ -1102,16 +1226,42 @@ impl MapSnapshot.pin {
         if len(self.kinds) > 0 and here.kind not in self.kinds {
             return;
         }
+        if len(self.categories) > 0 and here.kind == "organizer" and not _org_matches_categories(here, self.categories) {
+            return;
+        }
+        if len(self.categories) > 0 and here.kind in ["event", "alert", "civic"] {
+            hit = False;
+            for c in _cats_of(here) {
+                if c in self.categories {
+                    hit = True;
+                }
+            }
+            if not hit {
+                return;
+            }
+        }
     } elif not _passes(here, spec, self.clat, self.clng) {
         return;
     }
+    pin = _resolve_pin_coords(here);
+    if pin is None {
+        return;
+    }
+    plat: float = float(pin["lat"]);
+    plng: float = float(pin["lng"]);
+    if not on_route and spec.distance > 0.0 {
+        if _miles(self.clat, self.clng, plat, plng) > spec.distance {
+            return;
+        }
+    }
     ven = _venue_of(here);
+    where_lbl: str = str(pin["label"]) if pin["label"] else (ven.name if ven else here.address);
     self.items.append(MapItem(
         id=jid(here), key=here.key, name=here.name, kind=here.kind, desc=here.desc,
-        when=here.when, price=here.price, lat=here.lat, lng=here.lng,
-        venue=(ven.name if ven else here.address), categories=_cats_of(here),
+        when=here.when, price=here.price, lat=plat, lng=plng,
+        venue=where_lbl, categories=_cats_of(here),
         source_name=here.source_name, source_url=here.source_url, path=here.path,
-        dist=round(_miles(self.clat, self.clng, here.lat, here.lng), 2)
+        dist=round(_miles(self.clat, self.clng, plat, plng), 2)
     ));
 }
 
@@ -1200,6 +1350,16 @@ impl GenerateBrief.rank {
     t_start = time.perf_counter();
     trace = new_trace(here.persona);
     today = datetime.now().weekday();
+    spec = FilterSpec(
+        categories=self.categories,
+        kinds=self.kinds,
+        price=self.price,
+        time=self.time,
+        date=self.date,
+        community=self.community,
+        community_only=self.community_only,
+        distance=self.distance
+    );
     # Profile agent: read the persona node and its edges.
     homes = [here ->:LivesAt:->][?:Place];
     route = [here ->:CommutesVia:->][?:Place];
@@ -1215,6 +1375,9 @@ impl GenerateBrief.rank {
     rules: dict[str, list[dict]] = {};
 
     def bump(n: PulseNode, pts: float, why: str, rule: str) -> None {
+        if not _passes(n, spec, self.clat, self.clng) {
+            return;
+        }
         k = n.key;
         if k not in scores {
             scores[k] = 0.0;
@@ -1477,20 +1640,28 @@ impl create_community_event(
     }
     stamp = datetime.now().strftime("%H%M%S");
     ekey = f"user-evt-{slug}-{stamp}";
-    # Campus-ish default pin so map/network have a place to put it.
-    lat0: float = 42.2780;
-    lng0: float = -83.7382;
+    body = desc.strip() if desc else ("Posted by " + who + ".");
+    # Resolve clear landmarks (Diag, Burns Park, …); leave generic city pin otherwise.
+    lat0: float = 0.0;
+    lng0: float = 0.0;
+    addr0: str = "Ann Arbor";
+    hint = _match_landmark((title + " " + body).lower());
+    if hint is not None {
+        lat0 = float(hint["lat"]);
+        lng0 = float(hint["lng"]);
+        addr0 = str(hint["label"]);
+    }
     evt = Event(
         key=ekey,
         name=title,
         kind="event",
-        desc=desc.strip() if desc else ("Posted by " + who + "."),
+        desc=body,
         when=when_txt,
         day=day_n,
         price=max(0.0, price),
         lat=lat0,
         lng=lng0,
-        address="Ann Arbor",
+        address=addr0,
         source_name="Posted",
         source_url="",
         posted_by=who,

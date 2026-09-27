@@ -53,6 +53,25 @@ glob VENUES: list[dict] = [
     {"key": "v-freighthouse", "name": "Ypsi Freighthouse", "address": "100 Market Pl, Ypsilanti", "lat": 42.2448, "lng": -83.6115, "place": "pl-ypsi"}
 ];
 
+# Unambiguous Ann Arbor landmarks for map pins (matched in name / desc / address).
+glob LANDMARKS: list[dict] = [
+    {"name": "The Diag", "lat": 42.2769, "lng": -83.7382, "aliases": ["the diag", "michigan diag", "um diag", "u-m diag", "on the diag", "at the diag", "at diag"]},
+    {"name": "Burns Park", "lat": 42.2714, "lng": -83.7275, "aliases": ["burns park"]},
+    {"name": "Gallup Park", "lat": 42.2745, "lng": -83.7040, "aliases": ["gallup park"]},
+    {"name": "Michigan Union", "lat": 42.2750, "lng": -83.7416, "aliases": ["michigan union", "the union"]},
+    {"name": "Central Campus", "lat": 42.2770, "lng": -83.7382, "aliases": ["central campus"]},
+    {"name": "North Campus", "lat": 42.2920, "lng": -83.7160, "aliases": ["north campus"]},
+    {"name": "Main Street", "lat": 42.2800, "lng": -83.7483, "aliases": ["main street", "main st"]},
+    {"name": "Kerrytown", "lat": 42.2846, "lng": -83.7456, "aliases": ["kerrytown"]},
+    {"name": "State Street", "lat": 42.2755, "lng": -83.7405, "aliases": ["state street", "state st"]},
+    {"name": "Pierpont Commons", "lat": 42.2913, "lng": -83.7171, "aliases": ["pierpont"]},
+    {"name": "Hill Auditorium", "lat": 42.2791, "lng": -83.7383, "aliases": ["hill auditorium", "hill aud"]},
+    {"name": "The Ark", "lat": 42.2793, "lng": -83.7485, "aliases": ["the ark"]},
+    {"name": "Blue LLama", "lat": 42.2796, "lng": -83.7488, "aliases": ["blue llama"]},
+    {"name": "Michigan Theater", "lat": 42.2790, "lng": -83.7415, "aliases": ["michigan theater", "michigan theatre"]},
+    {"name": "The Blind Pig", "lat": 42.2802, "lng": -83.7498, "aliases": ["blind pig"]}
+];
+
 glob ORGANIZERS: list[dict] = [
     {"key": "o-ums", "name": "UMS", "org_type": "nonprofit", "venue": "v-hill"},
     {"key": "o-jazz", "name": "U-M Jazz Collective", "org_type": "club", "venue": "v-union"},

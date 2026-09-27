@@ -590,7 +590,7 @@ def:pub NetworkPage(
             price=filters["price"] or "any",
             time=filters["time"] or "week",
             date=filters["date"] or "",
-            community=True,
+            community=False,
             community_only=posted_lane,
             distance=filters["distance"] or 0.0,
             clat=CAMPUS_LAT,

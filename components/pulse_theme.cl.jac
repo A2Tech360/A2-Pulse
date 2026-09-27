@@ -2,7 +2,7 @@
 
 glob ALL_CATEGORIES: list[str] = [
     "music", "food", "sports", "academic", "social", "arts", "community",
-    "outdoor", "civic", "networking"
+    "outdoor", "civic", "networking", "nightlife", "comedy"
 ];
 
 glob KIND_OPTIONS: list[dict] = [
@@ -66,6 +66,7 @@ def:pub default_filters() -> dict {
         "time": "week",
         "date": "",
         "community": True,
+        "community_only": False,
         "distance": 0.0,
         "reply": "",
         "query": ""
