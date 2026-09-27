@@ -1,6 +1,5 @@
 """Tests for live-listing categories (services/event_parse.py guess_cats)."""
 
-import from services.event_parse { guess_cats, split_host_title }
 
 test "whole words only: no tags from pieces of other words" {
     assert guess_cats("Wacky Flower and Shroom Tour of Ann Arbor", "", "Eventbrite Ann Arbor") == ["outdoor"];
