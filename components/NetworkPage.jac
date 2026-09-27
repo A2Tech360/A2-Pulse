@@ -13,6 +13,7 @@ import from .ui.skeleton { Skeleton }
 import from .ui.button { Button }
 import from .FilterBar { FilterBar }
 import from .pulse_theme { kind_color, kind_label }
+import from .net { with_timeout }
 
 glob CAMPUS_LAT: float = 42.2780;
 glob CAMPUS_LNG: float = -83.7382;
@@ -57,33 +58,48 @@ def:pub NetworkPage(
         selected: Dossier | None = None,
         selectedId: str = "",
         hoverId: str = "",
+        searched: str = "",
         showFilters: bool = False;
+
+    async def fetch_graph -> any {
+        res = root spawn EgoSnapshot(
+            center_key=centerKey,
+            hops=hops,
+            categories=filters["categories"] or [],
+            kinds=filters["kinds"] or [],
+            price=filters["price"] or "any",
+            time=filters["time"] or "week",
+            distance=filters["distance"] or 0.0,
+            clat=CAMPUS_LAT,
+            clng=CAMPUS_LNG
+        );
+        return res;
+    }
 
     async def load_graph -> None {
         loading = True;
         error = "";
+        w: any = window;
+        req: int = (w.__pulseGraphReq or 0) + 1;
+        w.__pulseGraphReq = req;
+        res: any = None;
         try {
-            res = root spawn EgoSnapshot(
-                center_key=centerKey,
-                hops=hops,
-                categories=filters["categories"] or [],
-                kinds=filters["kinds"] or [],
-                price=filters["price"] or "any",
-                time=filters["time"] or "week",
-                distance=filters["distance"] or 0.0,
-                clat=CAMPUS_LAT,
-                clng=CAMPUS_LNG
-            );
-            if res.reports and len(res.reports) > 0 {
-                snap: Snapshot = res.reports[0];
-                nodes = snap.nodes;
-                edges = snap.edges;
-            } else {
-                nodes = [];
-                edges = [];
-            }
+            res = await with_timeout(fetch_graph(), None);
         } except Exception {
-            error = "The graph walker could not reach the archive.";
+            res = None;
+        }
+        if w.__pulseGraphReq != req {
+            return;
+        }
+        if res is None {
+            error = "Can't reach the A2 Pulse server right now. Check your connection, then retry.";
+        } elif res.reports and len(res.reports) > 0 {
+            snap: Snapshot = res.reports[0];
+            nodes = snap.nodes;
+            edges = snap.edges;
+        } else {
+            nodes = [];
+            edges = [];
         }
         loading = False;
     }
@@ -92,20 +108,48 @@ def:pub NetworkPage(
         load_graph();
     }
 
+    async def fetch_search(q: str) -> any {
+        res = root spawn SearchArchive(query=q);
+        return res;
+    }
+
+    async def fetch_dossier(id: str) -> any {
+        res = root spawn GetDossier(node_id=id);
+        return res;
+    }
+
     async def run_search(q: str) -> None {
         query = q;
         if not q.strip() {
             results = [];
+            searched = "";
             return;
         }
-        res = root spawn SearchArchive(query=q);
+        w: any = window;
+        req: int = (w.__pulseSearchReq or 0) + 1;
+        w.__pulseSearchReq = req;
+        res: any = None;
+        try {
+            res = await with_timeout(fetch_search(q), None);
+        } except Exception {
+            res = None;
+        }
+        if w.__pulseSearchReq != req or res is None {
+            return;    # superseded by newer typing, or the server is slow (the graph shows its own error)
+        }
         results = res.reports[0] if res.reports and len(res.reports) > 0 else [];
+        searched = q;
     }
 
     async def open_dossier(id: str) -> None {
         selectedId = id;
-        res = root spawn GetDossier(node_id=id);
-        selected = res.reports[0] if res.reports and len(res.reports) > 0 else None;
+        res: any = None;
+        try {
+            res = await with_timeout(fetch_dossier(id), None);
+        } except Exception {
+            res = None;
+        }
+        selected = res.reports[0] if res is not None and res.reports and len(res.reports) > 0 else None;
     }
 
     def recenter(key: str, name: str) {
@@ -141,7 +185,8 @@ def:pub NetworkPage(
                     </div>}
                 {error
                     and <div
-                        className="absolute inset-0 flex flex-col items-center justify-center gap-3"
+                        className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-3"
+                        role="alert"
                     >
                         <p className="text-sm text-destructive">{error}</p>
                         <Button
@@ -156,7 +201,7 @@ def:pub NetworkPage(
                     and not error
                     and len(nodes) <= 1
                     and <div
-                        className="absolute inset-0 flex items-center justify-center pl-6 pr-6"
+                        className="absolute inset-0 z-10 flex items-center justify-center pl-6 pr-6"
                     >
                         <div
                             className="max-w-sm rounded-xl border bg-card pt-6 pb-6 pl-6 pr-6 text-center shadow-sm"
@@ -313,6 +358,29 @@ def:pub NetworkPage(
                                 placeholder="Search a club, venue, category or closure"
                                 className="h-10 bg-card pl-9 shadow-sm"
                             />
+                            {len(results) == 0
+                                and query.strip()
+                                and searched == query
+                                and <div
+                                    className="absolute left-0 right-0 top-11 z-30 flex flex-col gap-2 rounded-lg border bg-card pt-3 pb-3 pl-3 pr-3 shadow-lg"
+                                    role="status"
+                                >
+                                    <p className="text-sm">
+                                        {"No matches for “" + query.strip() + "”. Try a category, club or place:"}
+                                    </p>
+                                    <div className="flex flex-wrap gap-1.5">
+                                        {for s in STARTERS[:4] {
+                                            <button
+                                                key={"none-" + s["key"]}
+                                                type="button"
+                                                onClick={lambda (e: MouseEvent) { recenter(s["key"], s["name"]); }}
+                                                className="rounded-full border bg-background pt-1 pb-1 pl-3 pr-3 text-xs font-medium capitalize text-muted-foreground hover:text-foreground"
+                                            >
+                                                {s["name"]}
+                                            </button>
+                                        }}
+                                    </div>
+                                </div>}
                             {len(results) > 0
                                 and <div
                                     className="absolute left-0 right-0 top-11 z-30 max-h-72 overflow-y-auto rounded-lg border bg-card shadow-lg"

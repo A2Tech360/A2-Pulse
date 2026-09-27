@@ -22,6 +22,39 @@ glob NAV_ITEMS: list[dict] = [
 ];
 
 glob SKIP_KEY: str = "a2pulse.skipOnboarding";
+glob TAGLINE: str = "Ann Arbor's living local graph";
+glob FAVICON_URL: str = "/assets/favicon.svg";
+glob PAGE_TITLES: dict[str, str] = {
+    "/network": "Network",
+    "/map": "Map",
+    "/monday": "My Monday",
+    "/welcome": "Welcome"
+};
+
+# Tab title per screen, e.g. "My Monday · A2 Pulse" (the dev server ignores jac.toml's title).
+def set_page_title(path: str) {
+    w: any = window;
+    label: str = "";
+    for (prefix, name) in PAGE_TITLES.items() {
+        if path.startswith(prefix) {
+            label = name;
+        }
+    }
+    w.document.title = (label + " · A2 Pulse") if label else ("A2 Pulse · " + TAGLINE);
+}
+
+def ensure_favicon() {
+    w: any = window;
+    doc: any = w.document;
+    if doc.querySelector("link[rel='icon']") {
+        return;
+    }
+    link: any = doc.createElement("link");
+    link.rel = "icon";
+    link.type = "image/svg+xml";
+    link.href = FAVICON_URL;
+    doc.head.appendChild(link);
+}
 
 # "Just show me the demo" was chosen in this tab (sessionStorage, or in-memory fallback).
 def skipped_onboarding() -> bool {
@@ -50,8 +83,13 @@ def:pub AppShell() -> JsxElement {
     month_name: str = MONTHS[d.getMonth() as int];
     dateline: str = f"{day_name}, {month_name} {d.getDate()}, {d.getFullYear()}";
 
+    can with [path] entry {
+        set_page_title(path);
+    }
+
     async can with entry {
         apply_app_theme(dark);
+        ensure_favicon();
         # New visitors start with onboarding (once per page load).
         start_path: str = path;
         prof: dict = await load_profile();
@@ -77,10 +115,15 @@ def:pub AppShell() -> JsxElement {
         <div className="flex min-h-svh flex-col overflow-x-hidden bg-background text-foreground">
             <header className="sticky top-0 z-30 border-b border-border bg-background/80 backdrop-blur">
                 <div className="mx-auto flex h-14 w-full max-w-7xl items-center justify-between gap-4 pl-4 pr-4 sm:pl-6 sm:pr-6">
-                    <Link to="/network" className="flex items-center gap-2 text-foreground">
-                        <span className="size-2.5 rounded-full bg-foreground" />
-                        <span className="text-base font-semibold tracking-tight">
-                            {"A2 Pulse"}
+                    <Link to="/network" className="flex min-w-0 items-center gap-2 text-foreground" aria-label={"A2 Pulse, " + TAGLINE}>
+                        <span className="size-2.5 shrink-0 rounded-full bg-foreground" />
+                        <span className="flex min-w-0 flex-col leading-tight">
+                            <span className="text-base font-semibold tracking-tight">
+                                {"A2 Pulse"}
+                            </span>
+                            <span className="hidden truncate text-[11px] text-muted-foreground sm:block">
+                                {TAGLINE}
+                            </span>
                         </span>
                     </Link>
                     <nav className="flex items-center gap-1 rounded-lg bg-muted pt-1 pb-1 pl-1 pr-1">

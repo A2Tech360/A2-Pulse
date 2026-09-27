@@ -200,7 +200,7 @@ def:pub MapAddressSearch(
                         }
                     }}
                     placeholder={placeholder}
-                    className="min-w-0 flex-1 bg-transparent text-sm text-foreground outline-none placeholder:text-muted-foreground"
+                    className="min-w-0 flex-1 bg-transparent text-sm text-foreground outline-none placeholder:text-muted-foreground [&::-webkit-search-cancel-button]:appearance-none"
                     aria-label="Search map addresses"
                     aria-autocomplete="list"
                     autoComplete="off"
@@ -331,9 +331,12 @@ def:pub MapKeyMissing() -> JsxElement {
 
 def:pub MapLoading() -> JsxElement {
     return
-        <div className="absolute inset-0 flex items-center justify-center">
-            <span className="text-sm text-muted-foreground">
-                {"Loading Google Maps..."}
-            </span>
+        <div className="absolute inset-0 animate-pulse bg-muted" aria-busy="true" aria-label="Loading the map">
+            <div className="absolute top-4 left-4 right-4 h-11 rounded-full bg-background/60 sm:right-auto sm:w-[360px]" />
+            <div className="absolute bottom-4 left-4 flex gap-2">
+                <div className="h-9 w-20 rounded-full bg-background/60" />
+                <div className="h-9 w-20 rounded-full bg-background/60" />
+                <div className="h-9 w-20 rounded-full bg-background/60" />
+            </div>
         </div>;
 }

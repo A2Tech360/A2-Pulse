@@ -58,6 +58,22 @@ def:pub MondayPage() -> JsxElement {
         return me["onboarded"] == True;
     }
 
+    # Next step from a thin brief: edit your own profile, or go make one.
+    def widen_label() -> str {
+        return "Add interests" if persona == "custom" else ("See your brief" if me_onboarded() else "Build your profile");
+    }
+
+    def widen_brief() {
+        stop_audio();
+        if persona == "custom" {
+            nav("/welcome?edit=1");
+        } elif me_onboarded() {
+            persona = "custom";
+        } else {
+            nav("/welcome");
+        }
+    }
+
     def tab_hint(tab: dict) -> str {
         if tab["id"] != "custom" or not me["home_name"] {
             return tab["hint"];
@@ -329,10 +345,22 @@ def:pub MondayPage() -> JsxElement {
 
         {#* the five items *#}
         {if loading and brief is None {
-            <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-                <Skeleton className="h-48" />
-                <Skeleton className="h-48" />
-                <Skeleton className="h-48" />
+            <div className="flex flex-col gap-8" aria-busy="true" aria-label="Building your brief">
+                <div className="grid gap-6 lg:grid-cols-[2fr_1fr]">
+                    <Skeleton className="h-56 rounded-xl" />
+                    <div className="flex flex-col gap-3 lg:pl-6">
+                        <Skeleton className="h-3 w-28" />
+                        <Skeleton className="h-4 w-full" />
+                        <Skeleton className="h-4 w-5/6" />
+                        <Skeleton className="h-4 w-4/6" />
+                        <Skeleton className="h-4 w-5/6" />
+                    </div>
+                </div>
+                <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+                    <Skeleton className="h-48 rounded-xl" />
+                    <Skeleton className="h-48 rounded-xl" />
+                    <Skeleton className="h-48 rounded-xl" />
+                </div>
             </div>
             skip;
         }}
@@ -342,6 +370,7 @@ def:pub MondayPage() -> JsxElement {
             </div>
             <p className="font-display text-lg font-bold">{"A quiet week"}</p>
             <p className="text-sm text-muted-foreground">{"Nothing in the graph touches this profile yet."}</p>
+            <Button variant="outline" size="sm" className="mt-2" onClick={lambda (e: MouseEvent) { widen_brief(); }}>{widen_label()}</Button>
         </div>}
         {brief and len(brief.items) > 0 and <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
             {for (idx, it) in enumerate(brief.items if brief else []) {
@@ -375,6 +404,13 @@ def:pub MondayPage() -> JsxElement {
                     </div>
                 </article>
             }}
+        </div>}
+        {brief and len(brief.items) > 0 and len(brief.items) < 5 and <div className="flex flex-col items-start gap-3 rounded-xl border border-dashed pt-4 pb-4 pl-5 pr-5 sm:flex-row sm:items-center sm:justify-between">
+            <p className="text-sm text-muted-foreground">
+                {f"Only {len(brief.items)} " + ("thing touches" if len(brief.items) == 1 else "things touch") + " this profile this week. "}
+                {"Add interests or follow a few groups to widen it." if persona == "custom" else "Build your own profile to see what touches you."}
+            </p>
+            <Button variant="outline" size="sm" onClick={lambda (e: MouseEvent) { widen_brief(); }}>{widen_label()}</Button>
         </div>}
     </div>;
 }

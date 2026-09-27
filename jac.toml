@@ -75,13 +75,14 @@ lib_imports = ["import tailwindcss from '@tailwindcss/vite'"]
 [client.app_meta_data]
 title = "A2 Pulse - Ann Arbor's Living Local Graph"
 description = "Events, closures, clubs and civic items in one living graph. Explore the network, see the map, hear your Monday brief."
-keywords = "jac, starter, shadcn, template"
-author = "Blank canvas"
+keywords = "Ann Arbor, events, road closures, city council, University of Michigan, local news"
+author = "A2 Pulse"
 theme_color = "#dc7702"
+icon = "/assets/favicon.svg"
 og_type = "website"
-og_title = "A blank canvas"
-og_description = "A minimal jac-shadcn starter."
-og_site_name = "Blank canvas"
+og_title = "A2 Pulse - Ann Arbor's living local graph"
+og_description = "Events, closures, clubs and council items in one graph, plus a one-minute Monday brief made for you."
+og_site_name = "A2 Pulse"
 
 
 [jacpack]

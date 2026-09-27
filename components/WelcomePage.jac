@@ -334,6 +334,11 @@ def:pub WelcomePage(dark: bool = True) -> JsxElement {
                 </div>
             </div>
 
+            {step == 1 and not editing and <p className="rounded-lg bg-muted pt-3 pb-3 pl-3.5 pr-3.5 text-sm text-foreground">
+                <span className="font-semibold">{"Welcome to A2 Pulse. "}</span>
+                {"Answer three quick questions and we'll build your Monday brief: the five Ann Arbor events, closures and council items that touch your week, read aloud."}
+            </p>}
+
             <div className="flex flex-col gap-1.5">
                 <h1 className="text-2xl font-semibold tracking-tight">{titles[step - 1]}</h1>
                 <p className="text-sm text-muted-foreground">{subtitles[step - 1]}</p>
