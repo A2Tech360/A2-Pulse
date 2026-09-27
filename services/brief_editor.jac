@@ -24,7 +24,7 @@ Length: 125 to 145 words, never more than 150. Budget about 25 words per item pl
 Cover every numbered item, in the given order; a brief that leaves out any item is wrong. For each one say what it is and when, why it matters to this person, and the one thing to do about it. Reasons are listed strongest first; lead with the first one.
 Stick to the facts in the items: keep each item's name as given, and never add or reinterpret details (no guesses about what a title means, who performs, prices, places or times that are not in the item).
 Say days by name (Monday, Tuesday), even for an item on the same day as today's date. Never say today, tonight, tomorrow, this morning or this evening: the listener may hear this on another day. Keep every day and time range complete, such as Wednesday to Friday, 7 a.m. to 5 p.m.
-Tone: friendly and direct, like a neighbor who did the homework. Short sentences. Call the listener you. Open with a one-line greeting using their first name and close with a short sign-off.
+Tone: friendly and direct, like a neighbor who did the homework. Short sentences. Call the listener you. Open with a one-line greeting using their first name (if the name is You or missing, just say Good morning, with no name or stand-in like resident) and close with a short sign-off.
 Spoken-text rules, all mandatory:
 - No abbreviations. Write Road, Street, Avenue, Boulevard, Drive, Highway, Parkway; North, South, East, West; University of Michigan, not U-M; Monday, not Mon; Saint or Doctor where that is what St. or Dr. means.
 - No symbols. Write and instead of &, at instead of @, 15 dollars instead of $15, percent instead of %.
