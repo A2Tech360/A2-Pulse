@@ -1,6 +1,7 @@
 """A2 Pulse: Ann Arbor's living local graph - schema, walkers and endpoints."""
 
 import os;
+import time;
 import math;
 import json;
 import base64;
@@ -14,6 +15,7 @@ import from services.seed_data {
 import from services { pulse_llm }
 import from services.brief_editor { edit_brief }
 import from services.speakable { speakable }
+import from services.brief_trace { new_trace, append_trace, ms, sum_by_rule }
 
 # ---------------------------------------------------------------- nodes
 node Hub {
@@ -152,7 +154,9 @@ obj Brief {
         interests: list[str] = [],
         summary: str = "",
         ai: bool = False,
-        items: list[BriefItem] = [];
+        items: list[BriefItem] = [],
+        # Debug trace (profile read, per-rule scores, actions, editor I/O, timings); only with debug=True.
+        trace: dict = {};
 }
 
 obj FilterSpec {
@@ -264,10 +268,14 @@ walker:pub GetDossier {
     can read with PulseNode entry;
 }
 
-"""Monday crew: walk from a persona to its interests, places and follows, then rank what matters."""
+"""Monday crew: walk from a persona to its interests, places and follows, then rank what matters.
+debug=True returns the trace on Brief.trace; every full run also appends it to logs/briefs.jsonl.
+score_only=True stops after ranking (no Editor, nothing stored or logged) for the debug panel."""
 walker:pub GenerateBrief {
     has persona: str = "student",
         use_ai: bool = True,
+        debug: bool = False,
+        score_only: bool = False,
         reports: list[Brief] = [];
 
     can start with Root entry;

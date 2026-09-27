@@ -1,9 +1,11 @@
 """End-to-end GenerateBrief tests (MockLLM for the Editor, so no key or network)."""
 
 import re;
+import json;
 import from jaclang.byllm.lib { MockLLM }
 import from services { pulse_llm }
 import from services.speakable { speakable }
+import from services.brief_trace { log_path }
 
 glob FORBIDDEN: str = r"\b(Rd|St|Ave|Blvd|Dr|Hwy|Pkwy|Mon|Tue|Wed|Thu|Fri|Sat|Sun|AM|PM|U-M)\b|\b[NSEW]\b|[&@$%()*#]|https?:";
 
@@ -34,4 +36,59 @@ test "template brief is speakable and stored when the llm is off" {
         assert 140 <= len(b.summary.split()) <= 160, f"{persona}: {len(b.summary.split())}";
         assert profile_of(persona).last_summary == b.summary;
     }
+}
+
+# ---------------------------------------------------------------- debug trace
+def log_lines -> list[str] {
+    p = log_path();
+    return p.read_text().splitlines() if p.is_file() else [];
+}
+
+test "debug trace covers profile, scores, actions, editor, spoken text and timing" {
+    pulse_llm.set_llm(MockLLM(model_name="mockllm", config={"outputs": [RAW]}), "mockllm");
+    b = (root spawn GenerateBrief(persona="student", use_ai=True, debug=True)).reports[0];
+    pulse_llm.set_llm(None);
+    t: dict[str, any] = b.trace;
+    prof = t["profile"];
+    assert [h["key"] for h in prof["home"]] == ["pl-north"];
+    assert "pl-plymouth" in [v["key"] for v in prof["via"]];
+    assert prof["commute"] == "bike";
+    assert "music" in list(prof["interests"]);
+    assert "U-M Jazz Collective" in [f["name"] for f in prof["follows"]];
+    assert isinstance(prof["weights"], dict);
+    assert len(t["scored"]) > 5;
+    assert [s["key"] for s in t["scored"] if s["selected"]] == [it.key for it in b.items];
+    rows: list[dict[str, any]] = t["scored"];
+    for s in rows {
+        total: float = sum([float(r["points"]) for r in s["rules"]]);
+        score: float = float(s["score"]);
+        by_rule: float = sum([float(v) for v in s["by_rule"].values()]);
+        assert abs(total - score) < 0.01, f"{s['key']}: rules sum {total} != {score}";
+        assert abs(by_rule - score) < 0.01, f"{s['key']}: by_rule sum {by_rule} != {score}";
+    }
+    rule_names = set([r["rule"] for s in t["scored"] for r in s["rules"]]);
+    assert "home_alert" in rule_names and "interest" in rule_names and "follows" in rule_names;
+    assert [a["action"] for a in t["actions"]] == [it.action for it in b.items];
+    assert t["editor"]["mode"] == "llm";
+    assert t["editor"]["raw_llm"] == RAW;
+    assert "Plymouth Rd lane closure" in str(t["editor"]["input"]["items"]);
+    assert t["spoken"] == b.summary;
+    for k in ["profile_ms", "relevance_ms", "actions_ms", "editor_ms", "llm_ms", "speakable_ms", "persist_ms", "total_ms"] {
+        assert k in dict(t["timing_ms"]), k;
+    }
+    # Tests run in parallel workers, so look the line up by id rather than counting.
+    logged = [json.loads(l) for l in log_lines() if str(t["id"]) in l];
+    assert len(logged) == 1 and logged[0]["spoken"] == b.summary;
+}
+
+test "no trace without debug, and score_only stores and logs nothing" {
+    pulse_llm.set_llm(None);
+    plain = (root spawn GenerateBrief(persona="shop")).reports[0];
+    assert plain.trace == {};
+    stored = profile_of("shop").last_summary;
+    s = (root spawn GenerateBrief(persona="shop", debug=True, score_only=True)).reports[0];
+    assert s.summary == "";
+    assert "editor" not in s.trace and len(s.trace["scored"]) > 0;
+    assert profile_of("shop").last_summary == stored;
+    assert not any([str(s.trace["id"]) in l for l in log_lines()]);
 }

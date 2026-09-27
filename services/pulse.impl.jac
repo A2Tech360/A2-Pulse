@@ -459,24 +459,33 @@ impl GenerateBrief.start {
 }
 
 impl GenerateBrief.rank {
+    t_start = time.perf_counter();
+    trace = new_trace(here.persona);
     today = datetime.now().weekday();
+    # Profile agent: read the persona node and its edges.
     homes = [here ->:LivesAt:->][?:Place];
     route = [here ->:CommutesVia:->][?:Place];
     interests = [here ->:InterestedIn:->][?:Category];
     follows = [here ->:Follows:->][?:Organizer];
     w = here.weights;
+    t_profile = time.perf_counter();
+
+    # Relevance agent: every point is recorded with the rule that earned it.
     scores: dict[str, float] = {};
     reasons: dict[str, list[str]] = {};
     nodes: dict[str, PulseNode] = {};
+    rules: dict[str, list[dict]] = {};
 
-    def bump(n: PulseNode, pts: float, why: str) -> None {
+    def bump(n: PulseNode, pts: float, why: str, rule: str) -> None {
         k = n.key;
         if k not in scores {
             scores[k] = 0.0;
             reasons[k] = [];
             nodes[k] = n;
+            rules[k] = [];
         }
         scores[k] = scores[k] + pts;
+        rules[k].append({"rule": rule, "points": round(pts, 3), "detail": why});
         if why not in reasons[k] { reasons[k].append(why); }
     }
 
@@ -484,38 +493,46 @@ impl GenerateBrief.rank {
         is_home = p in homes;
         for x in [p <-:AffectsRoute:<-][?:PulseNode] {
             if x.kind == "alert" {
-                bump(x, 3.0 if is_home else 2.6, ("Near your home in " if is_home else "On your " + here.commute + " route via ") + p.name);
+                bump(x, 3.0 if is_home else 2.6, ("Near your home in " if is_home else "On your " + here.commute + " route via ") + p.name, "home_alert" if is_home else "route_alert");
             } else {
-                bump(x, 2.2, "Affects " + p.name + ", where you live or travel");
+                bump(x, 2.2, "Affects " + p.name + ", where you live or travel", "affects_place");
             }
         }
         for v in [p <-:Near:<-][?:Venue] {
             for e in [v <-:HostedAt:<-][?:Event] {
-                bump(e, 1.0, "Close by at " + v.name);
+                bump(e, 1.0, "Close by at " + v.name, "near_venue");
             }
         }
     }
     for c in interests {
         for x in [c <-:TaggedAs:<-][?:PulseNode] {
-            bump(x, 1.5 * w.get(c.name, 1.0), "Matches your interest in " + c.name);
+            bump(x, 1.5 * w.get(c.name, 1.0), "Matches your interest in " + c.name, "interest");
         }
     }
     for o in follows {
         for x in [o <-:OrganizedBy:<-][?:PulseNode] {
-            bump(x, 2.0, "From " + o.name + ", which you follow");
+            bump(x, 2.0, "From " + o.name + ", which you follow", "follows");
         }
     }
     for (k, n) in nodes.items() {
         for c in _cats_of(n) {
+            before = scores[k];
             scores[k] = scores[k] * w.get(c, 1.0);
+            if scores[k] != before {
+                rules[k].append({"rule": "weight", "points": round(scores[k] - before, 3), "detail": "x" + str(w.get(c, 1.0)) + " " + c + " weight from feedback"});
+            }
         }
         delta = n.day - today;
         if delta >= 0 and delta <= 2 and n.kind in ["civic", "alert"] {
             scores[k] = scores[k] + 0.6;
             reasons[k].append("Coming up in the next " + str(delta + 1) + " days");
+            rules[k].append({"rule": "soon", "points": 0.6, "detail": "Civic or alert within 3 days"});
         }
     }
     ranked = sorted(list(scores.keys()), key=lambda (k: str) -> float { return scores[k]; }, reverse=True);
+    t_score = time.perf_counter();
+
+    # Action agent: a to-do for each of the top five.
     items: list[BriefItem] = [];
     for k in ranked[:5] {
         n = nodes[k];
@@ -531,6 +548,36 @@ impl GenerateBrief.rank {
     }
     home_name = homes[0].name if len(homes) > 0 else "Ann Arbor";
     interest_names = [c.name for c in interests];
+    t_actions = time.perf_counter();
+
+    trace["profile"] = {
+        "name": here.name, "commute": here.commute,
+        "home": [{"key": p.key, "name": p.name} for p in homes],
+        "via": [{"key": p.key, "name": p.name} for p in route],
+        "interests": interest_names,
+        "follows": [{"key": o.key, "name": o.name} for o in follows],
+        "weights": dict(w)
+    };
+    trace["scored"] = [
+        {"rank": r + 1, "key": k, "name": nodes[k].name, "kind": nodes[k].kind, "score": round(scores[k], 3), "selected": r < 5, "by_rule": sum_by_rule(rules[k]), "rules": rules[k]}
+        for (r, k) in enumerate(ranked)
+    ];
+    trace["actions"] = [{"key": it.key, "name": it.name, "action": it.action} for it in items];
+    trace["llm"] = {"on": pulse_llm.llm_enabled(), "model": pulse_llm.llm_model_label()};
+    timing: dict[str, float] = {
+        "profile_ms": ms(t_start, t_profile), "relevance_ms": ms(t_profile, t_score), "actions_ms": ms(t_score, t_actions)
+    };
+
+    if self.score_only {
+        timing["total_ms"] = ms(t_start);
+        trace["timing_ms"] = timing;
+        report Brief(
+            persona=here.persona, profile_name=here.name, home=home_name, commute=here.commute,
+            interests=interest_names, items=items, trace=(trace if self.debug else {})
+        );
+        return;
+    }
+
     # Editor stage: LLM (8s deadline) or template, always passed through speakable().
     editor_items: list[dict] = [
         {"name": it.name, "kind": it.kind, "when": it.when, "reasons": reasons[it.key], "action": it.action}
@@ -540,11 +587,28 @@ impl GenerateBrief.rank {
     edited = edit_brief(here.name.split(",")[0], profile, editor_items, self.use_ai);
     summary: str = edited["spoken"];
     used_ai: bool = edited["mode"] == "llm";
+    t_editor = time.perf_counter();
     here.last_summary = summary;
     here.last_summary_at = datetime.now().isoformat(timespec="seconds");
+    t_persist = time.perf_counter();
+
+    trace["editor"] = {
+        "mode": edited["mode"], "model": edited["model"], "input": edited["input"],
+        "raw_llm": edited["raw_llm"], "error": edited["error"], "words": edited["words"]
+    };
+    trace["spoken"] = summary;
+    timing["editor_ms"] = ms(t_actions, t_editor);
+    timing["llm_ms"] = edited["llm_ms"];
+    timing["template_ms"] = edited["template_ms"];
+    timing["speakable_ms"] = edited["speakable_ms"];
+    timing["persist_ms"] = ms(t_editor, t_persist);
+    timing["total_ms"] = ms(t_start, t_persist);
+    trace["timing_ms"] = timing;
+    append_trace(trace);
     report Brief(
         persona=here.persona, profile_name=here.name, home=home_name, commute=here.commute,
-        interests=interest_names, summary=summary, ai=used_ai, items=items
+        interests=interest_names, summary=summary, ai=used_ai, items=items,
+        trace=(trace if self.debug else {})
     );
     return;
 }

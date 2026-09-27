@@ -6,6 +6,7 @@ import from .ui.button { Button }
 import from .ui.skeleton { Skeleton }
 import from .ui.select { Select, SelectTrigger, SelectValue, SelectContent, SelectItem }
 import from .pulse_theme { kind_color, kind_label }
+import from .BriefDebugPanel { BriefDebugPanel }
 sv import from ..services.pulse { GenerateBrief, Feedback, Brief, BriefItem, list_personas, speak_brief, list_voices }
 
 glob PERSONA_TABS: list[dict] = [
@@ -283,5 +284,6 @@ def:pub MondayPage() -> JsxElement {
                 </article>
             }}
         </div>}
+        <BriefDebugPanel persona={persona} />
     </div>;
 }
