@@ -43,7 +43,7 @@ glob STARTERS: list[dict[str, any]] = [
      ];
 
 def:pub NetworkPage(
-    filters: dict[str, any], onFilters: Callable[[dict], None]
+    filters: dict[str, any], onFilters: Callable[[dict[str, any]], None], dark: bool = True
 ) -> JsxElement {
     has centerKey: str = "cat-music",
         centerName: str = "music",
@@ -210,10 +210,10 @@ def:pub NetworkPage(
                                 x2={pos[e.target].x}
                                 y2={pos[e.target].y}
                                 stroke={(
-                                    "#1c1917"
+                                    ("#fafaf9" if dark else "#1c1917")
                                         if focus
                                             and (e.source == focus or e.target == focus)
-                                        else "#a8a29e"
+                                        else ("#78716c" if dark else "#a8a29e")
                                 )}
                                 strokeOpacity={(
                                     0.9
@@ -258,7 +258,9 @@ def:pub NetworkPage(
                                 fill={kind_color(n.kind)}
                                 fillOpacity={(1.0 if n.depth < 2 else 0.78)}
                                 stroke={(
-                                    "#1c1917" if n.id == selectedId else "#ffffff"
+                                    ("#fafaf9" if dark else "#1c1917")
+                                        if n.id == selectedId
+                                        else ("#1c1917" if dark else "#ffffff")
                                 )}
                                 strokeWidth={(3 if n.id == selectedId else 2)}
                             />
@@ -272,8 +274,12 @@ def:pub NetworkPage(
                                 fontSize={(
                                     18 if n.depth == 0 else (13 if n.depth == 1 else 11)
                                 )}
-                                fill={("#1c1917" if n.depth < 2 else "#78716c")}
-                                stroke="#ffffff"
+                                fill={(
+                                    ("#fafaf9" if dark else "#1c1917")
+                                        if n.depth < 2
+                                        else ("#a8a29e" if dark else "#78716c")
+                                )}
+                                stroke={("#1c1917" if dark else "#ffffff")}
                                 strokeWidth={4}
                                 paintOrder="stroke"
                             >
@@ -545,9 +551,11 @@ def:pub NetworkPage(
                                 <Button
                                     size="sm"
                                     variant="outline"
-                                    onClick={lambda (e: MouseEvent) { selected and recenter(
-                                        selected.key, selected.name
-                                    ); }}
+                                    onClick={lambda (e: MouseEvent) {
+                                        if selected {
+                                            recenter(selected.key, selected.name);
+                                        }
+                                    }}
                                 >
                                     {"Center here"}
                                 </Button>

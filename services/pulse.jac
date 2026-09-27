@@ -4,8 +4,9 @@ import os;
 import math;
 import json;
 import base64;
-import urllib.request;
 import urllib.error;
+import from urllib.parse { urlencode }
+import from urllib.request { Request, urlopen }
 import from datetime { datetime }
 import from services.seed_data {
     SOURCES, CATEGORIES, PLACES, VENUES, ORGANIZERS, EVENTS, ALERTS, CIVIC, PERSONAS
@@ -158,6 +159,15 @@ obj FilterSpec {
         reply: str = "";
 }
 
+obj PlaceSuggestion {
+    has id: str = "",
+        title: str = "",
+        sub: str = "",
+        label: str = "",
+        lat: float = 0.0,
+        lng: float = 0.0;
+}
+
 # ---------------------------------------------------------------- LLM layer
 def llm_parse_filters(text: str, prior: FilterSpec, allowed_categories: list[str]) -> FilterSpec by llm(temperature=0.1);
 sem llm_parse_filters = "Turn an Ann Arbor resident's natural-language request into graph filters. Follow-ups like 'anything with food?' or 'add music' must ADD to the prior filters, not reset them. kinds may only contain event, organizer, alert, civic. price is any, free or under10. time is today, weekend or week. distance is miles from campus (0 means any; near campus means 1). reply is one short friendly sentence describing what you are showing.";
@@ -177,6 +187,9 @@ def _hub -> Hub;
 def _miles(lat1: float, lng1: float, lat2: float, lng2: float) -> float;
 def _cats_of(n: PulseNode) -> list[str];
 def _venue_of(n: PulseNode) -> PulseNode | None;
+def _link_live(
+    e: PulseNode, item: dict[str, any], by_key: dict[str, PulseNode], h: Hub, src: PulseNode | None
+) -> None;
 def _passes(n: PulseNode, spec: FilterSpec, clat: float, clng: float) -> bool;
 def _edge_label(a: PulseNode, b: PulseNode) -> str;
 def _gnode(n: PulseNode, depth: int) -> GNode;
@@ -207,7 +220,11 @@ walker:pub EgoSnapshot {
     can finish with Root exit;
 }
 
-"""Project the same filtered graph truth into map pins and closure lines."""
+"""Project the same filtered graph truth into map pins and closure lines.
+
+Optional `persona` pulls in alerts/civic that AffectsRoute the persona's home
+or commute places, even when outside the distance slider.
+"""
 walker:pub MapSnapshot {
     has categories: list[str] = [],
         kinds: list[str] = [],
@@ -216,6 +233,8 @@ walker:pub MapSnapshot {
         distance: float = 0.0,
         clat: float = 42.2780,
         clng: float = -83.7382,
+        persona: str = "",
+        route_keys: list[str] = [],
         items: list[MapItem] = [],
         reports: list[list[MapItem]] = [];
 
@@ -287,6 +306,12 @@ def:pub maps_config() -> dict[str, any] {
     return {"key": os.environ.get("GOOGLE_MAPS_API_KEY", "").strip()};
 }
 
+"""Address / company autocomplete (2–3 hits), biased to Ann Arbor."""
+def:pub suggest_places(query: str) -> list[PlaceSuggestion];
+
+"""Resolve one address or place name to coordinates."""
+def:pub geocode_address(query: str) -> PlaceSuggestion;
+
 """Read text aloud with ElevenLabs (ELEVENLABS_API_KEY / _VOICE_ID / _MODEL).
 voice_id picks the voice actor; empty uses ELEVENLABS_VOICE_ID or the default.
 Returns {"audio": "data:audio/mpeg;base64,...", "error": ""}; audio is "" when unavailable."""
@@ -298,4 +323,3 @@ def:pub list_voices() -> dict[str, any];
 
 """Fetch live events from external APIs and upsert into graph."""
 def:pub ingest_live() -> dict[str, any];
-

@@ -35,7 +35,7 @@ def:pub FilterChip(
 }
 
 def:pub FilterBar(
-    filters: dict[str, any], onChange: Callable[[dict], None], showDistance: bool = True
+    filters: dict[str, any], onChange: Callable[[dict[str, any]], None], showDistance: bool = True
 ) -> JsxElement {
     has draft: str = "",
         asking: bool = False,

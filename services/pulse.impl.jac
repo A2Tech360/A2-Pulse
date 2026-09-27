@@ -350,6 +350,28 @@ impl EgoSnapshot.finish {
 # ---------------------------------------------------------------- MapSnapshot
 impl MapSnapshot.start {
     hub = _ensure_seed();
+    self.route_keys = [];
+    if self.persona {
+        for prof in [root -->][?:UserProfile] {
+            if prof.persona != self.persona {
+                continue;
+            }
+            for place in [prof ->:LivesAt:->][?:Place] {
+                for n in [place <-:AffectsRoute:<-][?:PulseNode] {
+                    if n.key and n.key not in self.route_keys {
+                        self.route_keys.append(n.key);
+                    }
+                }
+            }
+            for place in [prof ->:CommutesVia:->][?:Place] {
+                for n in [place <-:AffectsRoute:<-][?:PulseNode] {
+                    if n.key and n.key not in self.route_keys {
+                        self.route_keys.append(n.key);
+                    }
+                }
+            }
+        }
+    }
     visit hub;
 }
 
@@ -361,8 +383,18 @@ impl MapSnapshot.pin {
     if here.kind not in KIND_TOGGLES {
         return;
     }
+    on_route = here.key in self.route_keys;
     spec = FilterSpec(categories=self.categories, kinds=self.kinds, price=self.price, time=self.time, distance=self.distance);
-    if not _passes(here, spec, self.clat, self.clng) {
+    if on_route {
+        # Always surface commute / home route impacts; still respect kind toggles.
+        if len(self.kinds) > 0 and here.kind not in self.kinds {
+            return;
+        }
+    } elif not _passes(here, spec, self.clat, self.clng) {
+        return;
+    }
+    # Online or ungeocoded items have no real location; don't pin them at 0,0.
+    if here.lat == 0.0 and here.lng == 0.0 {
         return;
     }
     ven = _venue_of(here);
@@ -629,6 +661,114 @@ impl list_personas() -> list[dict[str, any]] {
     return out;
 }
 
+def _nominatim_search(query: str, limit: int) -> list[dict[str, any]] {
+    q = query.strip();
+    if len(q) < 2 {
+        return [];
+    }
+    low = q.lower();
+    if "ann arbor" not in low and "michigan" not in low and ", mi" not in low {
+        q = q + ", Ann Arbor, MI";
+    }
+    params = {
+        "format": "json",
+        "addressdetails": "0",
+        "limit": str(limit),
+        "countrycodes": "us",
+        "viewbox": "-83.90,42.36,-83.62,42.20",
+        "bounded": "0",
+        "q": q
+    };
+    url = "https://nominatim.openstreetmap.org/search?" + urlencode(params);
+    req = Request(
+        url,
+        headers={
+            "User-Agent": "A2Pulse/1.0 (Jac demo; local map search)",
+            "Accept": "application/json"
+        }
+    );
+    try {
+        resp = urlopen(req, timeout=8);
+        raw = resp.read().decode("utf-8");
+        resp.close();
+        data = json.loads(raw);
+        if isinstance(data, list) {
+            return data;
+        }
+    } except Exception {
+        return [];
+    }
+    return [];
+}
+
+def _split_place_label(display: str) -> dict[str, any] {
+    parts = display.split(",");
+    if len(parts) == 0 {
+        return {"title": display, "sub": ""};
+    }
+    title = parts[0].strip();
+    rest: list[str] = [];
+    i = 1;
+    while i < len(parts) and len(rest) < 3 {
+        bit = parts[i].strip();
+        if bit {
+            rest.append(bit);
+        }
+        i += 1;
+    }
+    return {"title": title, "sub": ", ".join(rest)};
+}
+
+impl suggest_places(query: str) -> list[PlaceSuggestion] {
+    rows = _nominatim_search(query, 3);
+    out: list[PlaceSuggestion] = [];
+    for row in rows {
+        if len(out) >= 3 {
+            break;
+        }
+        display = str(row["display_name"]) if "display_name" in row else "";
+        if not display {
+            continue;
+        }
+        bits = _split_place_label(display);
+        pid = str(row["place_id"]) if "place_id" in row else str(len(out));
+        lat_s = str(row["lat"]) if "lat" in row else "0";
+        lon_s = str(row["lon"]) if "lon" in row else "0";
+        out.append(
+            PlaceSuggestion(
+                id=pid,
+                title=bits["title"],
+                sub=bits["sub"],
+                label=display,
+                lat=float(lat_s),
+                lng=float(lon_s)
+            )
+        );
+    }
+    return out;
+}
+
+impl geocode_address(query: str) -> PlaceSuggestion {
+    rows = _nominatim_search(query, 1);
+    if len(rows) == 0 {
+        return PlaceSuggestion();
+    }
+    row = rows[0];
+    display = str(row["display_name"]) if "display_name" in row else "";
+    bits = _split_place_label(display);
+    pid = str(row["place_id"]) if "place_id" in row else "";
+    lat_s = str(row["lat"]) if "lat" in row else "0";
+    lon_s = str(row["lon"]) if "lon" in row else "0";
+    return PlaceSuggestion(
+        id=pid,
+        title=bits["title"],
+        sub=bits["sub"],
+        label=display,
+        lat=float(lat_s),
+        lng=float(lon_s)
+    );
+}
+
 # ---------------------------------------------------------------- voice (ElevenLabs)
 # Default voice "George" from the ElevenLabs library; override with ELEVENLABS_VOICE_ID.
 glob TTS_DEFAULT_VOICE: str = "JBFqnCBsd6RMkjVDRZzb";
@@ -673,14 +813,14 @@ impl speak_brief(text: str, voice_id: str = "") -> dict[str, any] {
     if cache_key in _tts_cache {
         return {"audio": _tts_cache[cache_key], "error": ""};
     }
-    req = urllib.request.Request(
+    req = Request(
         f"https://api.elevenlabs.io/v1/text-to-speech/{voice}?output_format=mp3_44100_128",
         data=json.dumps({"text": text, "model_id": model}).encode("utf-8"),
         headers={"xi-api-key": key, "Content-Type": "application/json", "Accept": "audio/mpeg"},
         method="POST"
     );
     try {
-        resp: any = urllib.request.urlopen(req, timeout=60);
+        resp: any = urlopen(req, timeout=60);
         mp3: bytes = resp.read();
         resp.close();
     } except urllib.error.HTTPError as e {
@@ -700,12 +840,12 @@ impl list_voices -> dict[str, any] {
     }
     key = os.environ.get("ELEVENLABS_API_KEY", "").strip();
     if key {
-        req = urllib.request.Request(
+        req = Request(
             "https://api.elevenlabs.io/v2/voices?page_size=100",
             headers={"xi-api-key": key, "Accept": "application/json"}
         );
         try {
-            resp: any = urllib.request.urlopen(req, timeout=20);
+            resp: any = urlopen(req, timeout=20);
             data: any = json.loads(resp.read().decode("utf-8"));
             resp.close();
             out: list[dict[str, any]] = [];
@@ -729,28 +869,63 @@ impl list_voices -> dict[str, any] {
 impl ingest_live() -> dict[str, any] {
     mod: any = __import__("services.ingestion", fromlist=["fetch_all"]);
     results: list[any] = mod.fetch_all();
-    count: int = 0;
-    hubs = [root -->][?:Hub];
-    if not hubs { return {"ingested": 0, "debug": "no hub"}; }
-    h = hubs[0];
-    existing_keys: list[str] = [n.key for n in [h -->][?:Event]];
-    for item in results {
-        if item["key"] in existing_keys { continue; }
-        e = Event(
-            key=item["key"],
-            name=item["name"],
-            kind="event",
-            desc=item["desc"],
-            when=item["when"],
-            price=item["price"],
-            lat=item["lat"],
-            lng=item["lng"],
-            source_url=item.get("source_url", ""),
-            source_name=item["src"]
-        );
-        h ++> e;
-        existing_keys.append(item["key"]);
-        count += 1;
+    h = _ensure_seed();
+    by_key: dict[str, PulseNode] = {};
+    for n in [h -->][?:PulseNode] {
+        by_key[n.key] = n;
     }
-    return {"ingested": count, "total_fetched": len(results)};
+    added: int = 0;
+    updated: int = 0;
+    for item in results {
+        # Upsert: refresh nodes from earlier runs so stale pins get corrected.
+        e: PulseNode = PulseNode();
+        if item["key"] in by_key {
+            e = by_key[item["key"]];
+            updated += 1;
+        } else {
+            e = Event(key=item["key"], kind="event");
+            h ++> e;
+            by_key[item["key"]] = e;
+            added += 1;
+        }
+        src = by_key.get(item["src"], None);
+        e.name = item["name"];
+        e.desc = item["desc"];
+        e.when = item["when"];
+        e.day = item.get("day", 0);
+        e.price = item["price"];
+        e.sub = "free" if item["price"] == 0.0 else "paid";
+        e.lat = item["lat"];
+        e.lng = item["lng"];
+        e.address = item.get("address", "");
+        e.source_url = item.get("source_url", "");
+        e.source_name = src.name if src else item["src"];
+        _link_live(e, item, by_key, h, src);
+    }
+    return {"ingested": added, "updated": updated, "total_fetched": len(results)};
+}
+
+impl _link_live(
+    e: PulseNode, item: dict[str, any], by_key: dict[str, PulseNode], h: Hub, src: PulseNode | None
+) -> None {
+    vkey: str = item.get("venue_key", "");
+    if vkey and len([e ->:HostedAt:->][?:Venue]) == 0 {
+        ven = by_key.get(vkey, None);
+        if ven is None {
+            ven = Venue(key=vkey, name=item["venue"], kind="venue", lat=item["lat"], lng=item["lng"], address=item.get("address", ""), desc="Venue from live listings.");
+            h ++> ven;
+            by_key[vkey] = ven;
+        }
+        e +>:HostedAt:+> ven;
+    }
+    have: list[str] = _cats_of(e);
+    for c in (item.get("cats", []) as list[str]) {
+        cat = by_key.get("cat-" + c, None);
+        if cat is not None and c not in have {
+            e +>:TaggedAs:+> cat;
+        }
+    }
+    if src is not None and len([e ->:SourcedFrom:->]) == 0 {
+        e +>:SourcedFrom:+> src;
+    }
 }

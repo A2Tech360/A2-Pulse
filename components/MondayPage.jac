@@ -62,7 +62,9 @@ def:pub MondayPage() -> JsxElement {
         saved: str = "";
         try {
             saved = localStorage.getItem(VOICE_STORAGE_KEY) or "";
-        } except Exception {}
+        } except Exception {
+            saved = "";
+        }
         try {
             res: dict[str, any] = await list_voices();
             loaded: list[dict[str, any]] = res["voices"] or [];
@@ -79,7 +81,9 @@ def:pub MondayPage() -> JsxElement {
         voice_id = vid;
         try {
             localStorage.setItem(VOICE_STORAGE_KEY, vid);
-        } except Exception {}
+        } except Exception {
+            return;
+        }
     }
 
     can with [persona] entry {

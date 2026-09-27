@@ -1,46 +1,13 @@
-# Jac build artifacts
 .jac/
-*.jac.py
-
-# Environment variables
+node_modules/
 .env
-.env.local
-.env.*.local
+.env.*
+!.env.example
+
+
+# Ingestion geocode cache
+services/.geocache.json
 
 # Python
 __pycache__/
 *.py[cod]
-*.pyo
-venv/
-.venv/
-
-# Node
-node_modules/
-dist/
-.parcel-cache/
-
-# OS
-.DS_Store
-Thumbs.db
-
-# IDE
-.vscode/
-.idea/
-*.swp
-*.swo
-
-# Logs
-*.log
-logs/
-
-# Database
-*.db
-*.sqlite
-*.sqlite3
-
-# Postgres (Jac embedded)
-.pgdata/
-
-# API keys / secrets
-.env*
-!.env.example

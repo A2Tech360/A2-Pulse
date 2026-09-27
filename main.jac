@@ -3,7 +3,8 @@
 import from services.pulse {
     EgoSnapshot, MapSnapshot, SearchArchive, GetDossier, GenerateBrief, Feedback,
     seed_pulse, converse_query, list_personas, update_custom_profile, maps_config,
-    Snapshot, GNode, GEdge, MapItem, Dossier, Brief, BriefItem, FilterSpec
+    suggest_places, geocode_address, speak_brief, list_voices,
+    Snapshot, GNode, GEdge, MapItem, Dossier, Brief, BriefItem, FilterSpec, PlaceSuggestion
 }
 
 import ".styles.global.css";
