@@ -4,13 +4,7 @@ glob KIND_TOGGLES: list[str] = ["event", "organizer", "alert", "civic"];
 glob MAX_NODES: int = 90;
 
 impl _has_llm -> bool {
-    for k in ["OPENAI_API_KEY", "ANTHROPIC_API_KEY", "GEMINI_API_KEY", "GOOGLE_API_KEY"] {
-        v = os.environ.get(k, "");
-        if v and len(v.strip()) > 8 {
-            return True;
-        }
-    }
-    return False;
+    return pulse_llm.llm_enabled();
 }
 
 impl _hub -> Hub {
@@ -546,12 +540,11 @@ impl GenerateBrief.rank {
     summary = "";
     used_ai = False;
     if self.use_ai and _has_llm() {
-        try {
-            profile = here.name + ", lives in " + home_name + ", commutes by " + here.commute + ", into " + ", ".join(interest_names);
-            summary = llm_write_brief(profile, "\n".join(lines));
+        profile = here.name + ", lives in " + home_name + ", commutes by " + here.commute + ", into " + ", ".join(interest_names);
+        res = pulse_llm.call_with_deadline(llm_write_brief, [profile, "\n".join(lines)]);
+        if res["ok"] and str(res["value"] or "").strip() {
+            summary = str(res["value"]).strip();
             used_ai = True;
-        } except Exception {
-            summary = "";
         }
     }
     if summary == "" {
@@ -624,8 +617,9 @@ impl update_custom_profile(home_key: str, commute: str, interests: list[str]) ->
 impl converse_query(text: str, prior: FilterSpec) -> FilterSpec {
     _ensure_seed();
     if _has_llm() {
-        try {
-            spec = llm_parse_filters(text, prior, CATEGORIES);
+        res = pulse_llm.call_with_deadline(llm_parse_filters, [text, prior, CATEGORIES]);
+        spec: any = res["value"];
+        if res["ok"] and isinstance(spec, FilterSpec) {
             spec.categories = [c for c in spec.categories if c in CATEGORIES];
             spec.kinds = [k for k in spec.kinds if k in KIND_TOGGLES];
             if spec.price not in ["any", "free", "under10"] { spec.price = "any"; }
@@ -633,8 +627,6 @@ impl converse_query(text: str, prior: FilterSpec) -> FilterSpec {
             spec.query = text;
             if not spec.reply { spec.reply = "Updated your view."; }
             return spec;
-        } except Exception {
-            return _heuristic_filters(text, prior);
         }
     }
     return _heuristic_filters(text, prior);
