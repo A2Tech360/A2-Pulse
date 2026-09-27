@@ -160,3 +160,25 @@ test "the Editor is told the Monday the brief is for, never today's date" {
     monday = edit_brief("Jordan", "Jordan", ITEMS, False, date(2026, 9, 28));
     assert monday["input"]["week_of"] == "Monday, September 28, 2026";
 }
+
+test "an LLM brief over 180 words falls back to the template" {
+    long = "Good morning Jordan. " + " ".join(["Plymouth Road is busy this week."] * 40);
+    mock([long]);
+    out = edit_brief("Jordan", "Jordan", ITEMS, True, TODAY);
+    pulse_llm.set_llm(None);
+    assert out["mode"] == "template";
+    assert "too long" in str(out["error"]), out["error"];
+    assert out["raw_llm"] == long;
+    assert out["spoken"].startswith("Good morning Jordan.") and out["words"] <= 165;
+}
+
+test "an LLM brief that says today, tonight or tomorrow falls back to the template" {
+    for word in ["today", "Tonight", "tomorrow"] {
+        text = "Good morning Jordan. The council votes " + word + " at 7 p.m. " + " ".join(["Plymouth Road work runs all week."] * 12);
+        mock([text]);
+        out = edit_brief("Jordan", "Jordan", ITEMS, True, TODAY);
+        pulse_llm.set_llm(None);
+        assert out["mode"] == "template", word;
+        assert word in str(out["error"]), out["error"];
+    }
+}

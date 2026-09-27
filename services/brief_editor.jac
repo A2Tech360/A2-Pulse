@@ -5,6 +5,7 @@ or when the call fails or times out, a template does. Either way the result
 goes through speakable() before it is returned, stored or spoken.
 """
 
+import re;
 import time;
 import from datetime { date, timedelta }
 import from services { pulse_llm }
@@ -14,6 +15,10 @@ glob TARGET_MIN_WORDS: int = 140;
 glob TARGET_MAX_WORDS: int = 160;
 # LLM output shorter than this is treated as a failed call.
 glob LLM_MIN_WORDS: int = 60;
+# LLM briefs longer than this, or with relative day words (the listener may hear
+# the brief on any day), are replaced by the template.
+glob LLM_MAX_WORDS: int = 180;
+glob RELATIVE_DAY_WORDS: str = r"(?i)\b(today|tonight|tomorrow)\b";
 
 glob ORDINALS: list[str] = ["First", "Second", "Third", "Fourth", "Fifth"];
 glob WHY_LEADS: list[str] = ["Why it matters:", "Why it's here:", "Why you'd care:", "The reason:", "Why it made the list:"];
@@ -202,9 +207,19 @@ def edit_brief(first_name: str, profile_line: str, items: list[dict[str, any]], 
             out["error"] = f"LLM output too short ({word_count(raw)} words)";
         } else {
             t0 = time.perf_counter();
-            out["spoken"] = speakable(raw, ref);
+            spoken: str = speakable(raw, ref);
             out["speakable_ms"] = round((time.perf_counter() - t0) * 1000, 2);
-            out["mode"] = "llm";
+            n = word_count(spoken);
+            relative: re.Match[str] | None = re.search(RELATIVE_DAY_WORDS, spoken);
+            # Guard what the prompt cannot guarantee: length and relative day words.
+            if n > LLM_MAX_WORDS {
+                out["error"] = f"LLM brief too long ({n} words); used the template";
+            } elif relative is not None {
+                out["error"] = f"LLM brief said '{relative.group(0)}'; used the template";
+            } else {
+                out["spoken"] = spoken;
+                out["mode"] = "llm";
+            }
         }
     } elif use_ai {
         out["error"] = "LLM off";
