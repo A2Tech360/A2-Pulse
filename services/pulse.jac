@@ -50,17 +50,17 @@ node UserProfile {
 }
 
 # ---------------------------------------------------------------- edges
-edge HostedAt {}
-edge OrganizedBy {}
-edge TaggedAs {}
-edge InterestedIn {}
-edge Follows {}
-edge LivesAt {}
-edge CommutesVia {}
-edge Near {}
-edge AffectsRoute {}
-edge Related {}
-edge SourcedFrom {}
+edge HostedAt: any --> any {}
+edge OrganizedBy: any --> any {}
+edge TaggedAs: any --> any {}
+edge InterestedIn: any --> any {}
+edge Follows: any --> any {}
+edge LivesAt: any --> any {}
+edge CommutesVia: any --> any {}
+edge Near: any --> any {}
+edge AffectsRoute: any --> any {}
+edge Related: any --> any {}
+edge SourcedFrom: any --> any {}
 
 # ---------------------------------------------------------------- transfer objs
 obj GNode {
@@ -260,7 +260,7 @@ walker:pub Feedback {
     has persona: str = "student",
         item_key: str = "",
         up: bool = True,
-        reports: list[dict] = [];
+        reports: list[dict[str, any]] = [];
 
     can start with Root entry;
     can adjust with UserProfile entry;
@@ -268,30 +268,30 @@ walker:pub Feedback {
 
 # ---------------------------------------------------------------- functions
 """Seed (idempotently) and report graph size."""
-def:pub seed_pulse() -> dict {
+def:pub seed_pulse() -> dict[str, any] {
     hub = _ensure_seed();
     return {"nodes": len([hub -->]), "city": hub.city};
 }
 
 """Update the custom persona's home, commute and interests."""
-def:pub update_custom_profile(home_key: str, commute: str, interests: list[str]) -> dict;
+def:pub update_custom_profile(home_key: str, commute: str, interests: list[str]) -> dict[str, any];
 
 """Conversational refine: parse natural language into filters, merging with the prior view."""
 def:pub converse_query(text: str, prior: FilterSpec) -> FilterSpec;
 
 """Persona catalogue with profile chips."""
-def:pub list_personas() -> list[dict];
+def:pub list_personas() -> list[dict[str, any]];
 
 """Browser Maps JavaScript API key (a public, referrer-restricted key) from GOOGLE_MAPS_API_KEY."""
-def:pub maps_config() -> dict {
+def:pub maps_config() -> dict[str, any] {
     return {"key": os.environ.get("GOOGLE_MAPS_API_KEY", "").strip()};
 }
 
 """Read text aloud with ElevenLabs (ELEVENLABS_API_KEY / _VOICE_ID / _MODEL).
 voice_id picks the voice actor; empty uses ELEVENLABS_VOICE_ID or the default.
 Returns {"audio": "data:audio/mpeg;base64,...", "error": ""}; audio is "" when unavailable."""
-def:pub speak_brief(text: str, voice_id: str = "") -> dict;
+def:pub speak_brief(text: str, voice_id: str = "") -> dict[str, any];
 
 """Voice actors for the brief: the account's voices when the key has voices_read,
 otherwise a curated set of ElevenLabs premade voices. Each: {id, name, desc}."""
-def:pub list_voices() -> dict;
+def:pub list_voices() -> dict[str, any];

@@ -1,7 +1,12 @@
 """Network tab: the Ann Arbor web as a living graph (EgoSnapshot walker)."""
 
 import from "@hugeicons/react" { HugeiconsIcon }
-import from "@hugeicons/core-free-icons" { Search01Icon, Cancel01Icon, ArrowUpRight01Icon, Analytics01Icon }
+import from "@hugeicons/core-free-icons" {
+    Search01Icon,
+    Cancel01Icon,
+    ArrowUpRight01Icon,
+    Analytics01Icon
+}
 import from .ui.input { Input }
 import from .ui.slider { Slider }
 import from .ui.skeleton { Skeleton }
@@ -11,18 +16,35 @@ import from .pulse_theme { kind_color, kind_label }
 
 glob CAMPUS_LAT: float = 42.2780;
 glob CAMPUS_LNG: float = -83.7382;
-sv import from ..services.pulse { EgoSnapshot, SearchArchive, GetDossier, Snapshot, GNode, GEdge, Dossier }
+import from ..services.pulse {
+    EgoSnapshot,
+    SearchArchive,
+    GetDossier,
+    Snapshot,
+    GNode,
+    GEdge,
+    Dossier
+}
 
-glob LEGEND: list[str] = ["event", "venue", "organizer", "category", "alert", "civic"];
-glob STARTERS: list[dict] = [
-    {"key": "cat-music", "name": "music"},
-    {"key": "o-jazz", "name": "U-M Jazz Collective"},
-    {"key": "a-plymouth", "name": "Plymouth Rd lane closure"},
-    {"key": "cat-civic", "name": "civic"},
-    {"key": "cat-food", "name": "food"}
-];
+glob LEGEND: list[str] = [
+         "event",
+         "venue",
+         "organizer",
+         "category",
+         "alert",
+         "civic"
+     ];
+glob STARTERS: list[dict[str, any]] = [
+         {"key": "cat-music", "name": "music"},
+         {"key": "o-jazz", "name": "U-M Jazz Collective"},
+         {"key": "a-plymouth", "name": "Plymouth Rd lane closure"},
+         {"key": "cat-civic", "name": "civic"},
+         {"key": "cat-food", "name": "food"}
+     ];
 
-def:pub NetworkPage(filters: dict, onFilters: Callable[[dict], None]) -> JsxElement {
+def:pub NetworkPage(
+    filters: dict[str, any], onFilters: Callable[[dict], None]
+) -> JsxElement {
     has centerKey: str = "cat-music",
         centerName: str = "music",
         hops: int = 2,
@@ -42,10 +64,15 @@ def:pub NetworkPage(filters: dict, onFilters: Callable[[dict], None]) -> JsxElem
         error = "";
         try {
             res = root spawn EgoSnapshot(
-                center_key=centerKey, hops=hops,
-                categories=filters["categories"] or [], kinds=filters["kinds"] or [],
-                price=filters["price"] or "any", time=filters["time"] or "week",
-                distance=filters["distance"] or 0.0, clat=CAMPUS_LAT, clng=CAMPUS_LNG
+                center_key=centerKey,
+                hops=hops,
+                categories=filters["categories"] or [],
+                kinds=filters["kinds"] or [],
+                price=filters["price"] or "any",
+                time=filters["time"] or "week",
+                distance=filters["distance"] or 0.0,
+                clat=CAMPUS_LAT,
+                clng=CAMPUS_LNG
             );
             if res.reports and len(res.reports) > 0 {
                 snap: Snapshot = res.reports[0];
@@ -94,191 +121,453 @@ def:pub NetworkPage(filters: dict, onFilters: Callable[[dict], None]) -> JsxElem
     }
     focus = hoverId or selectedId;
 
-    return <div className="relative flex flex-1 flex-col lg:flex-row">
-        {#* ---------------- graph canvas ---------------- *#}
-        <div className="relative min-h-[70svh] flex-1 overflow-hidden paper-grain lg:min-h-[calc(100svh-230px)]">
-            {loading and len(nodes) == 0 and <div className="absolute inset-0 flex items-center justify-center">
-                <div className="flex flex-col items-center gap-3">
-                    <Skeleton className="size-24 rounded-full" />
-                    <span className="kicker text-muted-foreground">{"Walking the graph..."}</span>
-                </div>
-            </div>}
-            {error and <div className="absolute inset-0 flex flex-col items-center justify-center gap-3">
-                <p className="text-sm text-destructive">{error}</p>
-                <Button variant="outline" size="sm" onClick={lambda (e: MouseEvent) { load_graph(); }}>{"Retry"}</Button>
-            </div>}
-            {not loading and not error and len(nodes) <= 1 and <div className="absolute inset-0 flex items-center justify-center pl-6 pr-6">
-                <div className="max-w-sm rounded-xl border bg-card pt-6 pb-6 pl-6 pr-6 text-center shadow-sm">
-                    <div className="mx-auto mb-3 flex size-10 items-center justify-center bg-primary/10 text-primary">
-                        <HugeiconsIcon icon={Analytics01Icon} strokeWidth={2} className="size-5" />
-                    </div>
-                    <h3 className="font-display text-xl font-bold">{"Nothing matches this walk"}</h3>
-                    <p className="mt-1 text-sm text-muted-foreground">{"Loosen a filter or pick something else to explore."}</p>
-                    <Button className="mt-4" size="sm" onClick={lambda (e: MouseEvent) { onFilters({"categories": [], "kinds": [], "price": "any", "time": "week", "distance": 0.0, "reply": "", "query": ""}); }}>{"Clear filters"}</Button>
-                </div>
-            </div>}
-            <svg viewBox="0 0 1200 800" preserveAspectRatio="xMidYMid slice" className={"absolute inset-0 size-full transition-opacity duration-500 " + ("opacity-50" if loading else "opacity-100")}>
-                {for e in edges {
-                    if e.source in pos and e.target in pos {
-                        <line
-                            key={e.source + e.target}
-                            x1={pos[e.source].x} y1={pos[e.source].y}
-                            x2={pos[e.target].x} y2={pos[e.target].y}
-                            stroke={("#1c1917" if focus and (e.source == focus or e.target == focus) else "#a8a29e")}
-                            strokeOpacity={(0.9 if focus and (e.source == focus or e.target == focus) else 0.28)}
-                            strokeWidth={(1.6 if focus and (e.source == focus or e.target == focus) else 0.9)}
-                        />
-                    }
-                }}
-                {for n in nodes {
-                    <g
-                        key={n.id}
-                        transform={f"translate({n.x},{n.y})"}
-                        className="cursor-pointer"
-                        onClick={lambda (e: MouseEvent) { open_dossier(n.id); }}
-                        onDoubleClick={lambda (e: MouseEvent) { recenter(n.key, n.name); }}
-                        onMouseEnter={lambda (e: MouseEvent) { hoverId = n.id; }}
-                        onMouseLeave={lambda (e: MouseEvent) { hoverId = ""; }}
+    return
+        <div className="relative flex flex-1 flex-col lg:flex-row">
+            {#* ---------------- graph canvas ---------------- *#}
+            <div
+                className="relative min-h-[70svh] flex-1 overflow-hidden paper-grain lg:min-h-[calc(100svh-230px)]"
+            >
+                {loading
+                    and len(nodes) == 0
+                    and <div
+                        className="absolute inset-0 flex items-center justify-center"
                     >
-                        {if n.depth == 0 {
-                            <circle r={30} fill="none" stroke={kind_color(n.kind)} strokeWidth={1.5} strokeDasharray="3 4" />
-                        }}
-                        <circle
-                            r={(18 if n.depth == 0 else (11 if n.depth == 1 else 7))}
-                            fill={kind_color(n.kind)}
-                            fillOpacity={(1.0 if n.depth < 2 else 0.78)}
-                            stroke={("#1c1917" if n.id == selectedId else "#ffffff")}
-                            strokeWidth={(3 if n.id == selectedId else 2)}
-                        />
-                        <text
-                            y={(40 if n.depth == 0 else (26 if n.depth == 1 else 20))}
-                            textAnchor="middle"
-                            fontFamily="Geist Variable, system-ui, sans-serif"
-                            fontWeight={(600 if n.depth == 0 else 500)}
-                            fontSize={(18 if n.depth == 0 else (13 if n.depth == 1 else 11))}
-                            fill={("#1c1917" if n.depth < 2 else "#78716c")}
-                            stroke="#ffffff"
-                            strokeWidth={4}
-                            paintOrder="stroke"
+                        <div className="flex flex-col items-center gap-3">
+                            <Skeleton className="size-24 rounded-full"/>
+                            <span className="kicker text-muted-foreground">
+                                {"Walking the graph..."}
+                            </span>
+                        </div>
+                    </div>}
+                {error
+                    and <div
+                        className="absolute inset-0 flex flex-col items-center justify-center gap-3"
+                    >
+                        <p className="text-sm text-destructive">{error}</p>
+                        <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={lambda (e: MouseEvent) { load_graph(); }}
                         >
-                            {(n.name if len(n.name) < 30 else n.name[:28] + "...")}
-                        </text>
-                    </g>
-                }}
-            </svg>
-
-            {#* editorial overlay, like a front page headline *#}
-            <div className="pointer-events-none relative z-10 flex flex-col gap-3 pt-6 pb-6 pl-5 pr-5 sm:pl-8 lg:max-w-md">
-                <h2 className="text-2xl font-semibold tracking-tight">{"Explore Ann Arbor"}</h2>
-                <p className="text-sm text-muted-foreground">{"Events, clubs, closures and council items, connected. Pick a thread to see what's tied to it."}</p>
-                <div className="pointer-events-auto flex flex-col gap-2">
-                    <div className="relative max-w-md">
-                        <HugeiconsIcon icon={Search01Icon} strokeWidth={2} className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
-                        <Input
-                            value={query}
-                            onChange={lambda (e: ChangeEvent) { run_search(e.target.value); }}
-                            placeholder="Search a club, venue, category or closure"
-                            className="h-10 bg-card pl-9 shadow-sm"
-                        />
-                        {len(results) > 0 and <div className="absolute left-0 right-0 top-11 z-30 max-h-72 overflow-y-auto rounded-lg border bg-card shadow-lg">
-                            {for r in results {
-                                <button key={r.id} type="button" onClick={lambda (e: MouseEvent) { recenter(r.key, r.name); }} className="flex w-full items-center gap-3 border-b pt-2 pb-2 pl-3 pr-3 text-left last:border-b-0 hover:bg-muted">
-                                    <span className="size-2.5 shrink-0 rounded-full" style={{"backgroundColor": kind_color(r.kind)}} />
-                                    <span className="flex-1 truncate text-sm font-medium capitalize">{r.name}</span>
-                                    <span className="kicker text-muted-foreground">{kind_label(r.kind)}</span>
+                            {"Retry"}
+                        </Button>
+                    </div>}
+                {not loading
+                    and not error
+                    and len(nodes) <= 1
+                    and <div
+                        className="absolute inset-0 flex items-center justify-center pl-6 pr-6"
+                    >
+                        <div
+                            className="max-w-sm rounded-xl border bg-card pt-6 pb-6 pl-6 pr-6 text-center shadow-sm"
+                        >
+                            <div
+                                className="mx-auto mb-3 flex size-10 items-center justify-center bg-primary/10 text-primary"
+                            >
+                                <HugeiconsIcon
+                                    icon={Analytics01Icon}
+                                    strokeWidth={2}
+                                    className="size-5"
+                                />
+                            </div>
+                            <h3 className="font-display text-xl font-bold">
+                                {"Nothing matches this walk"}
+                            </h3>
+                            <p className="mt-1 text-sm text-muted-foreground">
+                                {"Loosen a filter or pick something else to explore."}
+                            </p>
+                            <Button
+                                className="mt-4"
+                                size="sm"
+                                onClick={lambda (e: MouseEvent) { onFilters(
+                                    {
+                                        "categories": [],
+                                        "kinds": [],
+                                        "price": "any",
+                                        "time": "week",
+                                        "distance": 0.0,
+                                        "reply": "",
+                                        "query": ""
+                                    }
+                                ); }}
+                            >
+                                {"Clear filters"}
+                            </Button>
+                        </div>
+                    </div>}
+                <svg
+                    viewBox="0 0 1200 800"
+                    preserveAspectRatio="xMidYMid slice"
+                    className={"absolute inset-0 size-full transition-opacity duration-500 "
+                        + ("opacity-50" if loading else "opacity-100")}
+                >
+                    {for e in edges {
+                        if e.source in pos and e.target in pos {
+                            <line
+                                key={e.source + e.target}
+                                x1={pos[e.source].x}
+                                y1={pos[e.source].y}
+                                x2={pos[e.target].x}
+                                y2={pos[e.target].y}
+                                stroke={(
+                                    "#1c1917"
+                                        if focus
+                                            and (e.source == focus or e.target == focus)
+                                        else "#a8a29e"
+                                )}
+                                strokeOpacity={(
+                                    0.9
+                                        if focus
+                                            and (e.source == focus or e.target == focus)
+                                        else 0.28
+                                )}
+                                strokeWidth={(
+                                    1.6
+                                        if focus
+                                            and (e.source == focus or e.target == focus)
+                                        else 0.9
+                                )}
+                            />
+                        }
+                    }}
+                    {for n in nodes {
+                        <g
+                            key={n.id}
+                            transform={f"translate({n.x},{n.y})"}
+                            className="cursor-pointer"
+                            onClick={lambda (e: MouseEvent) { open_dossier(n.id); }}
+                            onDoubleClick={lambda (e: MouseEvent) { recenter(
+                                n.key, n.name
+                            ); }}
+                            onMouseEnter={lambda (e: MouseEvent) { hoverId = n.id; }}
+                            onMouseLeave={lambda (e: MouseEvent) { hoverId = ""; }}
+                        >
+                            {if n.depth == 0 {
+                                <circle
+                                    r={30}
+                                    fill="none"
+                                    stroke={kind_color(n.kind)}
+                                    strokeWidth={1.5}
+                                    strokeDasharray="3 4"
+                                />
+                            }}
+                            <circle
+                                r={(
+                                    18 if n.depth == 0 else (11 if n.depth == 1 else 7)
+                                )}
+                                fill={kind_color(n.kind)}
+                                fillOpacity={(1.0 if n.depth < 2 else 0.78)}
+                                stroke={(
+                                    "#1c1917" if n.id == selectedId else "#ffffff"
+                                )}
+                                strokeWidth={(3 if n.id == selectedId else 2)}
+                            />
+                            <text
+                                y={(
+                                    40 if n.depth == 0 else (26 if n.depth == 1 else 20)
+                                )}
+                                textAnchor="middle"
+                                fontFamily="Geist Variable, system-ui, sans-serif"
+                                fontWeight={(600 if n.depth == 0 else 500)}
+                                fontSize={(
+                                    18 if n.depth == 0 else (13 if n.depth == 1 else 11)
+                                )}
+                                fill={("#1c1917" if n.depth < 2 else "#78716c")}
+                                stroke="#ffffff"
+                                strokeWidth={4}
+                                paintOrder="stroke"
+                            >
+                                {(n.name if len(n.name) < 30 else n.name[:28] + "...")}
+                            </text>
+                        </g>
+                    }}
+                </svg>
+                {#* editorial overlay, like a front page headline *#}
+                <div
+                    className="pointer-events-none relative z-10 flex flex-col gap-3 pt-6 pb-6 pl-5 pr-5 sm:pl-8 lg:max-w-md"
+                >
+                    <h2 className="text-2xl font-semibold tracking-tight">
+                        {"Explore Ann Arbor"}
+                    </h2>
+                    <p className="text-sm text-muted-foreground">
+                        {"Events, clubs, closures and council items, connected. Pick a thread to see what's tied to it."}
+                    </p>
+                    <div className="pointer-events-auto flex flex-col gap-2">
+                        <div className="relative max-w-md">
+                            <HugeiconsIcon
+                                icon={Search01Icon}
+                                strokeWidth={2}
+                                className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground"
+                            />
+                            <Input
+                                value={query}
+                                onChange={lambda (e: ChangeEvent) { run_search(
+                                    e.target.value
+                                ); }}
+                                placeholder="Search a club, venue, category or closure"
+                                className="h-10 bg-card pl-9 shadow-sm"
+                            />
+                            {len(results) > 0
+                                and <div
+                                    className="absolute left-0 right-0 top-11 z-30 max-h-72 overflow-y-auto rounded-lg border bg-card shadow-lg"
+                                >
+                                    {for r in results {
+                                        <button
+                                            key={r.id}
+                                            type="button"
+                                            onClick={lambda (e: MouseEvent) { recenter(
+                                                r.key, r.name
+                                            ); }}
+                                            className="flex w-full items-center gap-3 border-b pt-2 pb-2 pl-3 pr-3 text-left last:border-b-0 hover:bg-muted"
+                                        >
+                                            <span
+                                                className="size-2.5 shrink-0 rounded-full"
+                                                style={{
+                                                    "backgroundColor": kind_color(
+                                                        r.kind
+                                                    )
+                                                }}
+                                            />
+                                            <span
+                                                className="flex-1 truncate text-sm font-medium capitalize"
+                                            >
+                                                {r.name}
+                                            </span>
+                                            <span
+                                                className="kicker text-muted-foreground"
+                                            >
+                                                {kind_label(r.kind)}
+                                            </span>
+                                        </button>
+                                    }}
+                                </div>}
+                        </div>
+                        <div className="flex flex-wrap gap-1.5">
+                            {for s in STARTERS {
+                                <button
+                                    key={s["key"]}
+                                    type="button"
+                                    onClick={lambda (e: MouseEvent) { recenter(
+                                        s["key"], s["name"]
+                                    ); }}
+                                    className={"rounded-full border pt-1 pb-1 pl-3 pr-3 text-xs font-medium capitalize transition-colors "
+                                        + (
+                                            "border-foreground bg-foreground text-background"
+                                                if centerKey == s["key"]
+                                                else "bg-card text-muted-foreground hover:text-foreground"
+                                        )}
+                                >
+                                    {s["name"]}
                                 </button>
                             }}
-                        </div>}
-                    </div>
-                    <div className="flex flex-wrap gap-1.5">
-                        {for s in STARTERS {
-                            <button key={s["key"]} type="button" onClick={lambda (e: MouseEvent) { recenter(s["key"], s["name"]); }} className={"rounded-full border pt-1 pb-1 pl-3 pr-3 text-xs font-medium capitalize transition-colors " + ("border-foreground bg-foreground text-background" if centerKey == s["key"] else "bg-card text-muted-foreground hover:text-foreground")}>
-                                {s["name"]}
-                            </button>
-                        }}
-                    </div>
-                </div>
-            </div>
-
-            {#* legend + stats, bottom-left *#}
-            <div className="absolute bottom-4 left-4 z-10 flex flex-wrap items-center gap-3 rounded-lg border bg-card/90 pt-2 pb-2 pl-3 pr-3 backdrop-blur sm:left-8">
-                {for k in LEGEND {
-                    <span key={k} className="kicker flex items-center gap-1.5 text-muted-foreground">
-                        <span className="size-2.5 rounded-full" style={{"backgroundColor": kind_color(k)}} />
-                        {kind_label(k)}
-                    </span>
-                }}
-                <span className="kicker border-l pl-3 tabular-nums text-foreground">{f"{len(nodes)} nodes · {len(edges)} ties"}</span>
-            </div>
-        </div>
-
-        {#* ---------------- side column: hops, filters, dossier ---------------- *#}
-        <aside className="relative z-20 flex w-full flex-col gap-5 border-t bg-background pt-6 pb-6 pl-6 pr-6 lg:w-[360px] lg:border-l lg:border-t-0">
-            <div className="flex flex-col gap-3">
-                <div className="flex items-baseline justify-between">
-                    <span className="kicker text-muted-foreground">{"Center of the walk"}</span>
-                    <span className="kicker text-primary">{kind_label(pos[nodes[0].id].kind) if len(nodes) > 0 else ""}</span>
-                </div>
-                <h3 className="font-display text-2xl font-bold capitalize leading-tight">{centerName}</h3>
-                <div className="flex items-center justify-between text-xs">
-                    <span className="kicker text-muted-foreground">{"How far out"}</span>
-                    <span className="kicker tabular-nums">{str(hops) + (" hop" if hops == 1 else " hops")}</span>
-                </div>
-                <Slider min={1} max={3} step={1} value={[hops]} onValueChange={lambda (v: list[float]) { hops = int(v[0]); }} />
-                <p className="text-xs text-muted-foreground">{"1 = direct ties. 2 = friends of friends. Double-click any bubble to re-center."}</p>
-            </div>
-
-            <div className="border-t pt-4">
-                <button type="button" onClick={lambda (e: MouseEvent) { showFilters = not showFilters; }} className="kicker flex w-full items-center justify-between text-foreground">
-                    <span>{"Filters & ask"}</span>
-                    <span>{"Hide" if showFilters else "Show"}</span>
-                </button>
-                {showFilters and <div className="mt-3"><FilterBar filters={filters} onChange={onFilters} /></div>}
-            </div>
-
-            <div className="border-t pt-4">
-                {if selected is None {
-                    <div className="flex flex-col gap-1">
-                        <span className="kicker text-muted-foreground">{"The dossier"}</span>
-                        <p className="text-sm text-muted-foreground">{"Click any bubble to read its file: when, where, who, and where the fact came from."}</p>
-                    </div>
-                    skip;
-                }}
-                {selected and <div className="flex flex-col gap-3 animate-in fade-in slide-in-from-bottom-2 duration-300">
-                    <div className="flex items-start justify-between gap-3">
-                        <div className="flex flex-col gap-1">
-                            <span className="kicker" style={{"color": kind_color(selected.kind)}}>{kind_label(selected.kind)}</span>
-                            <h3 className="font-display text-xl font-bold leading-tight">{selected.name}</h3>
                         </div>
-                        <button type="button" onClick={lambda (e: MouseEvent) { selected = None; selectedId = ""; }} className="text-muted-foreground hover:text-foreground">
-                            <HugeiconsIcon icon={Cancel01Icon} strokeWidth={2} className="size-4" />
-                        </button>
                     </div>
-                    {selected.desc and <p className="text-sm leading-relaxed">{selected.desc}</p>}
-                    <dl className="grid grid-cols-[88px_1fr] gap-y-1.5 text-sm">
-                        {selected.when and <dt className="kicker pt-0.5 text-muted-foreground">{"When"}</dt>}
-                        {selected.when and <dd>{selected.when}</dd>}
-                        {(selected.venue or selected.address) and <dt className="kicker pt-0.5 text-muted-foreground">{"Where"}</dt>}
-                        {(selected.venue or selected.address) and <dd>{selected.venue + (" · " + selected.address if selected.address else "")}</dd>}
-                        {selected.organizer and <dt className="kicker pt-0.5 text-muted-foreground">{"Who"}</dt>}
-                        {selected.organizer and <dd>{selected.organizer}</dd>}
-                        {selected.kind == "event" and <dt className="kicker pt-0.5 text-muted-foreground">{"Price"}</dt>}
-                        {selected.kind == "event" and <dd>{("Free" if selected.price == 0.0 else f"${selected.price:.0f}")}</dd>}
-                    </dl>
-                    {len(selected.categories) > 0 and <div className="flex flex-wrap gap-1">
-                        {for c in (selected.categories if selected else []) {
-                            <span key={c} className="kicker border pt-0.5 pb-0.5 pl-1.5 pr-1.5 text-muted-foreground">{c}</span>
-                        }}
-                    </div>}
-                    <div className="flex flex-wrap gap-2">
-                        <Button size="sm" variant="outline" onClick={lambda (e: MouseEvent) { recenter(selected.key, selected.name); }}>{"Center here"}</Button>
-                        {selected.source_url and <a href={selected.source_url} target="_blank" rel="noreferrer" className="kicker inline-flex items-center gap-1 text-primary hover:underline">
-                            {"Source: " + selected.source_name}
-                            <HugeiconsIcon icon={ArrowUpRight01Icon} strokeWidth={2} className="size-3.5" />
-                        </a>}
-                    </div>
-                </div>}
+                </div>
+                {#* legend + stats, bottom-left *#}
+                <div
+                    className="absolute bottom-4 left-4 z-10 flex flex-wrap items-center gap-3 rounded-lg border bg-card/90 pt-2 pb-2 pl-3 pr-3 backdrop-blur sm:left-8"
+                >
+                    {for k in LEGEND {
+                        <span
+                            key={k}
+                            className="kicker flex items-center gap-1.5 text-muted-foreground"
+                        >
+                            <span
+                                className="size-2.5 rounded-full"
+                                style={{"backgroundColor": kind_color(k)}}
+                            />
+                            {kind_label(k)}
+                        </span>
+                    }}
+                    <span className="kicker border-l pl-3 tabular-nums text-foreground">
+                        {f"{len(nodes)} nodes · {len(edges)} ties"}
+                    </span>
+                </div>
             </div>
-        </aside>
-    </div>;
+            {#* ---------------- side column: hops, filters, dossier ---------------- *#}
+            <aside
+                className="relative z-20 flex w-full flex-col gap-5 border-t bg-background pt-6 pb-6 pl-6 pr-6 lg:w-[360px] lg:border-l lg:border-t-0"
+            >
+                <div className="flex flex-col gap-3">
+                    <div className="flex items-baseline justify-between">
+                        <span className="kicker text-muted-foreground">
+                            {"Center of the walk"}
+                        </span>
+                        <span className="kicker text-primary">
+                            {kind_label(pos[nodes[0].id].kind)
+                                if len(nodes) > 0
+                                else ""}
+                        </span>
+                    </div>
+                    <h3
+                        className="font-display text-2xl font-bold capitalize leading-tight"
+                    >
+                        {centerName}
+                    </h3>
+                    <div className="flex items-center justify-between text-xs">
+                        <span className="kicker text-muted-foreground">
+                            {"How far out"}
+                        </span>
+                        <span className="kicker tabular-nums">
+                            {str(hops) + (" hop" if hops == 1 else " hops")}
+                        </span>
+                    </div>
+                    <Slider
+                        min={1}
+                        max={3}
+                        step={1}
+                        value={[hops]}
+                        onValueChange={lambda (v: list[float]) { hops = int(v[0]); }}
+                    />
+                    <p className="text-xs text-muted-foreground">
+                        {"1 = direct ties. 2 = friends of friends. Double-click any bubble to re-center."}
+                    </p>
+                </div>
+                <div className="border-t pt-4">
+                    <button
+                        type="button"
+                        onClick={lambda (e: MouseEvent) { showFilters = not showFilters; }}
+                        className="kicker flex w-full items-center justify-between text-foreground"
+                    >
+                        <span>{"Filters & ask"}</span>
+                        <span>{"Hide" if showFilters else "Show"}</span>
+                    </button>
+                    {showFilters
+                        and <div className="mt-3">
+                            <FilterBar filters={filters} onChange={onFilters}/>
+                        </div>}
+                </div>
+                <div className="border-t pt-4">
+                    {if selected is None {
+                        <div className="flex flex-col gap-1">
+                            <span className="kicker text-muted-foreground">
+                                {"The dossier"}
+                            </span>
+                            <p className="text-sm text-muted-foreground">
+                                {"Click any bubble to read its file: when, where, who, and where the fact came from."}
+                            </p>
+                        </div>
+                        skip;
+                    }}
+                    {selected
+                        and <div
+                            className="flex flex-col gap-3 animate-in fade-in slide-in-from-bottom-2 duration-300"
+                        >
+                            <div className="flex items-start justify-between gap-3">
+                                <div className="flex flex-col gap-1">
+                                    <span
+                                        className="kicker"
+                                        style={{"color": kind_color(selected.kind)}}
+                                    >
+                                        {kind_label(selected.kind)}
+                                    </span>
+                                    <h3
+                                        className="font-display text-xl font-bold leading-tight"
+                                    >
+                                        {selected.name}
+                                    </h3>
+                                </div>
+                                <button
+                                    type="button"
+                                    onClick={lambda (e: MouseEvent) {
+                                        selected = None;
+                                        selectedId = "";
+                                    }}
+                                    className="text-muted-foreground hover:text-foreground"
+                                >
+                                    <HugeiconsIcon
+                                        icon={Cancel01Icon}
+                                        strokeWidth={2}
+                                        className="size-4"
+                                    />
+                                </button>
+                            </div>
+                            {selected.desc
+                                and <p className="text-sm leading-relaxed">
+                                    {selected.desc}
+                                </p>}
+                            <dl className="grid grid-cols-[88px_1fr] gap-y-1.5 text-sm">
+                                {selected.when
+                                    and <dt
+                                        className="kicker pt-0.5 text-muted-foreground"
+                                    >
+                                        {"When"}
+                                    </dt>}{selected.when and <dd>{selected.when}</dd>}{(
+                                    selected.venue or selected.address
+                                )
+                                    and <dt
+                                        className="kicker pt-0.5 text-muted-foreground"
+                                    >
+                                        {"Where"}
+                                    </dt>}{(selected.venue or selected.address)
+                                    and <dd>
+                                        {selected.venue
+                                            + (
+                                                " · " + selected.address
+                                                    if selected.address
+                                                    else ""
+                                            )}
+                                    </dd>}{selected.organizer
+                                    and <dt
+                                        className="kicker pt-0.5 text-muted-foreground"
+                                    >
+                                        {"Who"}
+                                    </dt>}{selected.organizer
+                                    and <dd>{selected.organizer}</dd>}{selected.kind
+                                    == "event"
+                                    and <dt
+                                        className="kicker pt-0.5 text-muted-foreground"
+                                    >
+                                        {"Price"}
+                                    </dt>}{selected.kind == "event"
+                                    and <dd>
+                                        {(
+                                            "Free"
+                                                if selected.price == 0.0
+                                                else f"${selected.price:.0f}"
+                                        )}
+                                    </dd>}
+                            </dl>
+                            {len(selected.categories) > 0
+                                and <div className="flex flex-wrap gap-1">
+                                    {for c in (
+                                        selected.categories if selected else []
+                                    ) {
+                                        <span
+                                            key={c}
+                                            className="kicker border pt-0.5 pb-0.5 pl-1.5 pr-1.5 text-muted-foreground"
+                                        >
+                                            {c}
+                                        </span>
+                                    }}
+                                </div>}
+                            <div className="flex flex-wrap gap-2">
+                                <Button
+                                    size="sm"
+                                    variant="outline"
+                                    onClick={lambda (e: MouseEvent) { selected and recenter(
+                                        selected.key, selected.name
+                                    ); }}
+                                >
+                                    {"Center here"}
+                                </Button>
+                                {selected.source_url
+                                    and <a
+                                        href={selected.source_url}
+                                        target="_blank"
+                                        rel="noreferrer"
+                                        className="kicker inline-flex items-center gap-1 text-primary hover:underline"
+                                    >
+                                        {"Source: " + selected.source_name}
+                                        <HugeiconsIcon
+                                            icon={ArrowUpRight01Icon}
+                                            strokeWidth={2}
+                                            className="size-3.5"
+                                        />
+                                    </a>}
+                            </div>
+                        </div>}
+                </div>
+            </aside>
+        </div>;
 }

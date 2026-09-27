@@ -568,7 +568,7 @@ impl Feedback.adjust {
 }
 
 # ---------------------------------------------------------------- functions
-impl update_custom_profile(home_key: str, commute: str, interests: list[str]) -> dict {
+impl update_custom_profile(home_key: str, commute: str, interests: list[str]) -> dict[str, any] {
     _ensure_seed();
     profs = [root -->][?:UserProfile][?persona == "custom"];
     if len(profs) == 0 {
@@ -612,9 +612,9 @@ impl converse_query(text: str, prior: FilterSpec) -> FilterSpec {
     return _heuristic_filters(text, prior);
 }
 
-impl list_personas() -> list[dict] {
+impl list_personas() -> list[dict[str, any]] {
     _ensure_seed();
-    out: list[dict] = [];
+    out: list[dict[str, any]] = [];
     for p in [root -->][?:UserProfile] {
         homes = [p ->:LivesAt:->][?:Place];
         out.append({
@@ -635,10 +635,10 @@ glob TTS_DEFAULT_VOICE: str = "JBFqnCBsd6RMkjVDRZzb";
 glob TTS_DEFAULT_MODEL: str = "eleven_flash_v2_5";
 glob TTS_MAX_CHARS: int = 2500;
 glob _tts_cache: dict[str, str] = {};
-glob _voices_cache: list[dict] = [];
+glob _voices_cache: list[dict[str, any]] = [];
 
 # Premade ElevenLabs voices, used when the key cannot list voices (no voices_read).
-glob PREMADE_VOICES: list[dict] = [
+glob PREMADE_VOICES: list[dict[str, any]] = [
     {"id": "JBFqnCBsd6RMkjVDRZzb", "name": "George", "desc": "Warm British narrator"},
     {"id": "nPczCjzI2devNBz1zQrb", "name": "Brian", "desc": "Deep, resonant American"},
     {"id": "onwK4e9ZLuTAKqWW03F9", "name": "Daniel", "desc": "Authoritative British newsreader"},
@@ -655,7 +655,7 @@ glob PREMADE_VOICES: list[dict] = [
     {"id": "pFZP5JQG7iQjIQuC4Bku", "name": "Lily", "desc": "Velvety British"}
 ];
 
-impl speak_brief(text: str, voice_id: str = "") -> dict {
+impl speak_brief(text: str, voice_id: str = "") -> dict[str, any] {
     key = os.environ.get("ELEVENLABS_API_KEY", "").strip();
     if not key {
         return {"audio": "", "error": "ELEVENLABS_API_KEY is not set"};
@@ -694,7 +694,7 @@ impl speak_brief(text: str, voice_id: str = "") -> dict {
     return {"audio": url, "error": ""};
 }
 
-impl list_voices -> dict {
+impl list_voices -> dict[str, any] {
     if _voices_cache {
         return {"voices": _voices_cache, "source": "account"};
     }
@@ -708,7 +708,7 @@ impl list_voices -> dict {
             resp: any = urllib.request.urlopen(req, timeout=20);
             data: any = json.loads(resp.read().decode("utf-8"));
             resp.close();
-            out: list[dict] = [];
+            out: list[dict[str, any]] = [];
             raw: list[any] = data.get("voices", []);
             for v in raw {
                 labels: any = v.get("labels") or {};
