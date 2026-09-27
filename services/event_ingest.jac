@@ -26,7 +26,13 @@ obj RawEvent {
         price: float = 0.0,
         categories: list[str] = [],
         source_url: str = "",
-        day: int = -1;
+        day: int = -1,
+        # Set by geocoded feeds (Happening @ Michigan); 0,0 means no known location.
+        lat: float = 0.0,
+        lng: float = 0.0,
+        address: str = "",
+        # Stable id from the source, used for the event key when present.
+        ext_id: str = "";
 }
 
 obj SyncReport {
@@ -55,4 +61,4 @@ force=True ignores the short cooldown between automatic syncs."""
 def:pub sync_online_events(force: bool = False) -> SyncReport;
 
 """Return recently ingested live events (keys starting with live-)."""
-def:pub list_live_events(limit: int = 40) -> list[dict];
+def:pub list_live_events(limit: int = 40) -> list[dict[str, any]];
