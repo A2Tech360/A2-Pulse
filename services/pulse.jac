@@ -199,6 +199,7 @@ def _edge_label(a: PulseNode, b: PulseNode) -> str;
 def _gnode(n: PulseNode, depth: int) -> GNode;
 def _find_key(key: str) -> PulseNode | None;
 def _action_for(n: PulseNode, reasons: list[str], commute: str) -> str;
+def _bus_action_for(n: PulseNode, reasons: list[str]) -> str;
 def _heuristic_filters(text: str, prior: FilterSpec) -> FilterSpec;
 def _profile_for(uid: str) -> UserProfile | None;
 def _profile_dict(p: UserProfile) -> dict;

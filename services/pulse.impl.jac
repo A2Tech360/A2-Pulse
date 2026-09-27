@@ -198,6 +198,9 @@ impl _find_key(key: str) -> PulseNode | None {
 }
 
 impl _action_for(n: PulseNode, reasons: list[str], commute: str) -> str {
+    if commute == "bus" {
+        return _bus_action_for(n, reasons);
+    }
     if n.kind == "alert" {
         if n.sub == "detour" {
             return "Check TheRide trip planner and give yourself 10 extra minutes.";
@@ -217,6 +220,27 @@ impl _action_for(n: PulseNode, reasons: list[str], commute: str) -> str {
         return "Free. Save it to your calendar for " + n.when + ".";
     }
     return "RSVP and grab a ticket ($" + str(int(n.price)) + ") for " + n.when + ".";
+}
+
+# Bus riders: closures and detours change where the bus goes, not just traffic.
+impl _bus_action_for(n: PulseNode, reasons: list[str]) -> str {
+    near_home = len([r for r in reasons if r.startswith("Near your home")]) > 0;
+    if n.kind == "alert" {
+        if n.sub == "detour" {
+            return "Your bus is detouring (" + n.when + "). Check TheRide's live map for moved stops and allow 15 extra minutes.";
+        }
+        if near_home {
+            return "Stops near home may move while this is closed (" + n.when + "). Check TheRide alerts and allow 10 extra minutes.";
+        }
+        return "Buses on your route may detour around this (" + n.when + "). Check TheRide alerts and allow 10 extra minutes.";
+    }
+    if n.kind == "civic" {
+        return "Sign up for public comment or email Council: " + n.when + ". Transit riders' comments count.";
+    }
+    if n.price == 0.0 {
+        return "Free. Save it for " + n.when + " and plan the bus trip in TheRide's trip planner.";
+    }
+    return "RSVP and grab a ticket ($" + str(int(n.price)) + ") for " + n.when + ", then plan the bus trip in TheRide's trip planner.";
 }
 
 impl _heuristic_filters(text: str, prior: FilterSpec) -> FilterSpec {
