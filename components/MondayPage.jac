@@ -6,6 +6,7 @@ import from .ui.button { Button }
 import from .ui.skeleton { Skeleton }
 import from .ui.select { Select, SelectTrigger, SelectValue, SelectContent, SelectItem }
 import from .pulse_theme { kind_color, kind_label }
+import from .profile_store { my_persona, load_profile, commute_verb }
 sv import from ..services.pulse { GenerateBrief, Feedback, Brief, BriefItem, list_personas, speak_brief, list_voices }
 
 glob PERSONA_TABS: list[dict] = [
@@ -26,14 +27,33 @@ def:pub MondayPage() -> JsxElement {
         voice_loading: bool = False,
         voices: list[dict] = [],
         voice_id: str = "",
+        me: dict = {},
         note: str = "";
+
+    # "custom" is the "You" tab: this browser's own profile on the server.
+    def target_persona(p: str) -> str {
+        return my_persona() if p == "custom" else p;
+    }
+
+    def tab_hint(tab: dict) -> str {
+        if tab["id"] != "custom" or not me or not me["home_name"] {
+            return tab["hint"];
+        }
+        home: str = me["home_name"];
+        mode: str = me["commute"];
+        return home + ", " + commute_verb(mode);
+    }
 
     async def generate -> None {
         loading = True;
         error = "";
         note = "";
+        who: str = target_persona(persona);
         try {
-            res = root spawn GenerateBrief(persona=persona, use_ai=True);
+            if persona == "custom" {
+                await load_profile();
+            }
+            res = root spawn GenerateBrief(persona=who, use_ai=True);
             brief = res.reports[0] if res.reports and len(res.reports) > 0 else None;
             votes = {};
         } except Exception {
@@ -43,6 +63,10 @@ def:pub MondayPage() -> JsxElement {
     }
 
     async can with entry {
+        prof: dict = await load_profile();
+        if prof["ok"] {
+            me = prof;
+        }
         saved: str = "";
         try {
             saved = localStorage.getItem(VOICE_STORAGE_KEY) or "";
@@ -79,7 +103,7 @@ def:pub MondayPage() -> JsxElement {
         nxt: dict = {**votes};
         nxt[it.key] = "up" if up else "down";
         votes = nxt;
-        root spawn Feedback(persona=persona, item_key=it.key, up=up);
+        root spawn Feedback(persona=target_persona(persona), item_key=it.key, up=up);
         note = ("Noted. More " if up else "Noted. Less ") + it.category + " next week. Regenerate to see the new ranking.";
     }
 
@@ -160,7 +184,7 @@ def:pub MondayPage() -> JsxElement {
                     {for p in PERSONA_TABS {
                         <button key={p["id"]} type="button" onClick={lambda (e: MouseEvent) { persona = p["id"]; }} className={"flex flex-col gap-0.5 rounded-md pt-2 pb-2 pl-3 pr-3 text-left transition-colors " + ("bg-foreground text-background" if persona == p["id"] else "hover:bg-background")}>
                             <span className="kicker">{p["label"]}</span>
-                            <span className={"text-xs " + ("text-background/70" if persona == p["id"] else "text-muted-foreground")}>{p["hint"]}</span>
+                            <span className={"text-xs " + ("text-background/70" if persona == p["id"] else "text-muted-foreground")}>{tab_hint(p)}</span>
                         </button>
                     }}
                 </div>

@@ -7,6 +7,7 @@ import from .ui.button { Button }
 import from .FilterBar { FilterBar }
 import from .map_markers { sticker_img_url }
 import from .pulse_theme { campus_lat, campus_lng }
+import from .profile_store { my_persona, load_profile }
 import from .MapChrome {
     MapAddressSearch,
     MapLegend,
@@ -55,6 +56,7 @@ def:pub MapPage(
         loading = True;
         error = "";
         try {
+            await load_profile();    # make sure this browser's profile exists
             res = root spawn MapSnapshot(
                 categories=filters["categories"] or [],
                 kinds=filters["kinds"] or [],
@@ -63,7 +65,7 @@ def:pub MapPage(
                 distance=filters["distance"] or 0.0,
                 clat=campus_lat(),
                 clng=campus_lng(),
-                persona="student"
+                persona=my_persona()
             );
             items = res.reports[0] if res.reports and len(res.reports) > 0 else [];
         } except Exception {
@@ -168,7 +170,7 @@ def:pub MapPage(
                         </span>
                     </div>
                     <p className="text-xs text-muted-foreground">
-                        {"Includes student commute-route alerts from the graph."}
+                        {"Includes closures on your home and commute route."}
                     </p>
                     {error
                         and <div className="flex items-center gap-3">

@@ -47,7 +47,9 @@ node UserProfile {
     has persona: str = "",
         name: str = "",
         commute: str = "walk",
-        weights: dict[str, float] = {};
+        weights: dict[str, float] = {},
+        uid: str = "",
+        onboarded: bool = False;
 }
 
 # ---------------------------------------------------------------- edges
@@ -193,6 +195,8 @@ def _gnode(n: PulseNode, depth: int) -> GNode;
 def _find_key(key: str) -> PulseNode | None;
 def _action_for(n: PulseNode, reasons: list[str], commute: str) -> str;
 def _heuristic_filters(text: str, prior: FilterSpec) -> FilterSpec;
+def _profile_for(uid: str) -> UserProfile | None;
+def _profile_dict(p: UserProfile) -> dict;
 
 # ---------------------------------------------------------------- walkers
 """Traverse N hops out from a center node, keeping only paths that pass every filter."""
@@ -295,8 +299,12 @@ def:pub update_custom_profile(home_key: str, commute: str, interests: list[str])
 """Conversational refine: parse natural language into filters, merging with the prior view."""
 def:pub converse_query(text: str, prior: FilterSpec) -> FilterSpec;
 
-"""Persona catalogue with profile chips."""
+"""Persona catalogue with profile chips (shared demo personas only)."""
 def:pub list_personas() -> list[dict];
+
+"""This browser's own profile, created on first call from the "You" defaults.
+uid is a random ID the browser keeps in localStorage; the profile's persona key is "u-<uid>"."""
+def:pub get_profile(uid: str) -> dict;
 
 """Browser Maps JavaScript API key (a public, referrer-restricted key) from GOOGLE_MAPS_API_KEY."""
 def:pub maps_config() -> dict {

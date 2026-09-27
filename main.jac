@@ -6,6 +6,8 @@ import from services.pulse {
     suggest_places, geocode_address, speak_brief, list_voices,
     Snapshot, GNode, GEdge, MapItem, Dossier, Brief, BriefItem, FilterSpec, PlaceSuggestion
 }
+# Per-browser profiles + onboarding endpoints.
+import from services.pulse { get_profile }
 
 import ".styles.global.css";
 import from "@jac/runtime" { Router }

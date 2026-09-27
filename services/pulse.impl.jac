@@ -644,6 +644,9 @@ impl list_personas() -> list[dict] {
     _ensure_seed();
     out: list[dict] = [];
     for p in [root -->][?:UserProfile] {
+        if p.uid {
+            continue;    # per-browser profiles are private
+        }
         homes = [p ->:LivesAt:->][?:Place];
         out.append({
             "persona": p.persona, "name": p.name, "commute": p.commute,
@@ -655,6 +658,79 @@ impl list_personas() -> list[dict] {
         });
     }
     return out;
+}
+
+# ---------------------------------------------------------------- per-browser profiles
+impl _profile_for(uid: str) -> UserProfile | None {
+    _ensure_seed();
+    clean = uid.strip();
+    if not clean or len(clean) > 64 or not clean.replace("-", "").isalnum() {
+        return None;
+    }
+    pid = "u-" + clean;
+    found = [root -->][?:UserProfile][?persona == pid];
+    if len(found) > 0 {
+        return found[0];
+    }
+    base: dict = {};
+    for pr in PERSONAS {
+        if pr["persona"] == "custom" {
+            base = pr;
+        }
+    }
+    prof = UserProfile(persona=pid, name="You", commute=base["commute"], weights={}, uid=clean, onboarded=False);
+    root ++> prof;
+    home = _find_key(base["home"]);
+    if home is not None {
+        prof +>:LivesAt():+> home;
+    }
+    for k in (base["via"] as list[str]) {
+        pl = _find_key(k);
+        if pl is not None {
+            prof +>:CommutesVia():+> pl;
+        }
+    }
+    for c in (base["interests"] as list[str]) {
+        cat = _find_key("cat-" + c);
+        if cat is not None {
+            prof +>:InterestedIn():+> cat;
+        }
+    }
+    for o in (base["follows"] as list[str]) {
+        org = _find_key(o);
+        if org is not None {
+            prof +>:Follows():+> org;
+        }
+    }
+    return prof;
+}
+
+impl _profile_dict(p: UserProfile) -> dict {
+    homes = [p ->:LivesAt:->][?:Place];
+    via = [p ->:CommutesVia:->][?:Place];
+    return {
+        "ok": True,
+        "persona": p.persona,
+        "uid": p.uid,
+        "onboarded": p.onboarded,
+        "name": p.name,
+        "commute": p.commute,
+        "home_key": (homes[0].key if len(homes) > 0 else ""),
+        "home_name": (homes[0].name if len(homes) > 0 else ""),
+        "via": [x.key for x in via],
+        "via_names": [x.name for x in via],
+        "interests": [c.name for c in [p ->:InterestedIn:->][?:Category]],
+        "follows": [o.key for o in [p ->:Follows:->][?:Organizer]],
+        "weights": p.weights
+    };
+}
+
+impl get_profile(uid: str) -> dict {
+    prof = _profile_for(uid);
+    if prof is None {
+        return {"ok": False, "error": "Invalid profile id"};
+    }
+    return _profile_dict(prof);
 }
 
 def _nominatim_search(query: str, limit: int) -> list[dict] {
