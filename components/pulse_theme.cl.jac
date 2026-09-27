@@ -2,7 +2,7 @@
 
 glob ALL_CATEGORIES: list[str] = [
     "music", "food", "sports", "academic", "social", "arts", "community",
-    "outdoor", "civic", "networking"
+    "outdoor", "civic", "networking", "nightlife", "comedy"
 ];
 
 glob KIND_OPTIONS: list[dict] = [
@@ -21,6 +21,7 @@ glob KIND_COLORS: dict[str, str] = {
     "civic": "#10b981",
     "place": "#0d9488",
     "lens": "#fafaf9",
+    "community": "#d946ef",
     "source": "#7c6f64"
 };
 
@@ -33,6 +34,7 @@ glob KIND_LABELS: dict[str, str] = {
     "civic": "Civic",
     "place": "Place",
     "lens": "Browse",
+    "community": "Posted",
     "source": "Source"
 };
 
@@ -63,6 +65,8 @@ def:pub default_filters() -> dict {
         "price": "any",
         "time": "week",
         "date": "",
+        "community": True,
+        "community_only": False,
         "distance": 0.0,
         "reply": "",
         "query": ""
@@ -104,6 +108,13 @@ def:pub future_date_chips(days: int = 14) -> list[dict] {
 
 def:pub kind_color(kind: str) -> str {
     return KIND_COLORS[kind] if kind in KIND_COLORS else "#7c6f64";
+}
+
+def:pub node_fill_color(kind: str, sub: str = "") -> str {
+    if sub == "community" or kind == "community" {
+        return KIND_COLORS["community"];
+    }
+    return kind_color(kind);
 }
 
 def:pub kind_label(kind: str) -> str {

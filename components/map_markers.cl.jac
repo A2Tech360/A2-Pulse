@@ -1,11 +1,42 @@
 """Citizen-style map markers: high-contrast circular emoji tokens.
 
-Solid disc + thick rim + emoji. Gold rim = active/alert. Campus = blue puck.
-Disc/rim adapt slightly so tokens read on both dark and light basemaps.
+Events use category glyphs (sports → basketball, food → plate, …).
+Other kinds keep their own tokens. Gold rim = active/alert. Campus = blue puck.
 """
 
+# Prefer more distinctive categories when an event has several tags.
+glob CAT_PRIORITY: list[str] = [
+    "sports",
+    "music",
+    "food",
+    "nightlife",
+    "comedy",
+    "arts",
+    "outdoor",
+    "academic",
+    "networking",
+    "civic",
+    "community",
+    "social"
+];
+
+glob CAT_EMOJI: dict[str, str] = {
+    "music": "🎵",
+    "food": "🍽️",
+    "sports": "🏀",
+    "academic": "📚",
+    "social": "🎉",
+    "arts": "🎨",
+    "community": "🤝",
+    "outdoor": "🌲",
+    "civic": "🏛️",
+    "networking": "💼",
+    "nightlife": "🍸",
+    "comedy": "😂"
+};
+
 glob KIND_EMOJI: dict[str, str] = {
-    "event": "🎵",
+    "event": "📅",
     "venue": "🎭",
     "organizer": "👥",
     "alert": "🚧",
@@ -48,8 +79,29 @@ glob LIGHT_MAP_STYLE: list[dict] = [
     {"featureType": "water", "elementType": "geometry", "stylers": [{"color": "#dbe4ea"}]}
 ];
 
-def emoji_for(kind: str) -> str {
-    # Dict lookup, not `match`: Jac 0.34 compiles client-side match to an empty function.
+def:pub primary_category(categories: list[str]) -> str {
+    if len(categories) == 0 {
+        return "";
+    }
+    for pref in CAT_PRIORITY {
+        if pref in categories {
+            return pref;
+        }
+    }
+    return categories[0];
+}
+
+def:pub emoji_for(kind: str, categories: list[str] = []) -> str {
+    # Events (and posted community events) pick an icon from their topic tags.
+    if kind == "event" or kind == "community" {
+        cat = primary_category(categories);
+        if cat and cat in CAT_EMOJI {
+            return CAT_EMOJI[cat];
+        }
+    }
+    if kind == "civic" and "civic" in CAT_EMOJI {
+        return CAT_EMOJI["civic"];
+    }
     return KIND_EMOJI[kind] if kind in KIND_EMOJI else "📍";
 }
 
@@ -62,7 +114,10 @@ def:pub map_bg_color(dark: bool) -> str {
 }
 
 def:pub pin_sticker_svg(
-    kind: str, focused: bool = False, dark: bool = True
+    kind: str,
+    focused: bool = False,
+    dark: bool = True,
+    categories: list[str] = []
 ) -> str {
     # Campus = blue location puck with theme-aware halo.
     if kind == "campus" {
@@ -77,7 +132,7 @@ def:pub pin_sticker_svg(
         );
     }
 
-    emoji = emoji_for(kind);
+    emoji = emoji_for(kind, categories);
     active = focused or kind == "alert";
     size: int = 56 if active else 48;
     disc = DISC_ON_DARK if dark else DISC_ON_LIGHT;
@@ -125,20 +180,27 @@ def:pub pin_sticker_svg(
 }
 
 def:pub pin_data_url(
-    kind: str, focused: bool = False, dark: bool = True
+    kind: str,
+    focused: bool = False,
+    dark: bool = True,
+    categories: list[str] = []
 ) -> str {
     w: any = window;
     return "data:image/svg+xml;charset=UTF-8," + w.encodeURIComponent(
-        pin_sticker_svg(kind, focused, dark)
+        pin_sticker_svg(kind, focused, dark, categories)
     );
 }
 
 def:pub maps_marker_icon(
-    gm: any, kind: str, focused: bool = False, dark: bool = True
+    gm: any,
+    kind: str,
+    focused: bool = False,
+    dark: bool = True,
+    categories: list[str] = []
 ) -> dict {
     if kind == "campus" {
         return {
-            "url": pin_data_url(kind, False, dark),
+            "url": pin_data_url(kind, False, dark, []),
             "scaledSize": new(gm.Size, 32, 32),
             "anchor": new(gm.Point, 16, 16)
         };
@@ -146,16 +208,22 @@ def:pub maps_marker_icon(
     active = focused or kind == "alert";
     size = 56 if active else 48;
     return {
-        "url": pin_data_url(kind, focused, dark),
+        "url": pin_data_url(kind, focused, dark, categories),
         "scaledSize": new(gm.Size, size, size),
         "anchor": new(gm.Point, size / 2, size / 2)
     };
 }
 
-def:pub sticker_img_url(kind: str, dark: bool = True) -> str {
-    return pin_data_url(kind, False, dark);
+def:pub sticker_img_url(
+    kind: str, dark: bool = True, categories: list[str] = []
+) -> str {
+    return pin_data_url(kind, False, dark, categories);
 }
 
-def:pub kind_emoji(kind: str) -> str {
-    return emoji_for(kind);
+def:pub kind_emoji(kind: str, categories: list[str] = []) -> str {
+    return emoji_for(kind, categories);
+}
+
+def:pub category_emoji(cat: str) -> str {
+    return CAT_EMOJI[cat] if cat in CAT_EMOJI else "📌";
 }

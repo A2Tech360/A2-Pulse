@@ -12,7 +12,10 @@ import from .pulse_theme { kind_label }
 import from .net { with_timeout }
 sv import from ..services.pulse { suggest_places, geocode_address, PlaceSuggestion }
 
-glob LEGEND_KINDS: list[str] = ["event", "venue", "organizer", "alert", "civic"];
+glob LEGEND_KINDS: list[str] = ["alert", "civic", "organizer"];
+glob LEGEND_CATS: list[str] = [
+    "sports", "music", "food", "arts", "outdoor", "nightlife"
+];
 # OpenStreetMap Nominatim etiquette: wait for a pause in typing, never a request per keystroke.
 glob SUGGEST_DEBOUNCE_MS: int = 1000;
 glob SUGGEST_MIN_CHARS: int = 3;
@@ -275,6 +278,19 @@ def:pub MapLegend(dark: bool) -> JsxElement {
         <div
             className="pointer-events-none absolute bottom-4 left-4 right-4 flex flex-wrap gap-2 sm:right-auto"
         >
+            {for cat in LEGEND_CATS {
+                <div
+                    key={"cat-" + cat}
+                    className="flex items-center gap-1.5 rounded-full border border-border bg-card/95 pt-1 pb-1 pl-1.5 pr-2.5 text-xs font-medium capitalize text-foreground shadow-sm backdrop-blur"
+                >
+                    <img
+                        src={sticker_img_url("event", dark, [cat])}
+                        alt=""
+                        className="h-7 w-7 object-contain"
+                    />
+                    <span>{cat}</span>
+                </div>
+            }}
             {for kind in LEGEND_KINDS {
                 <div
                     key={kind}

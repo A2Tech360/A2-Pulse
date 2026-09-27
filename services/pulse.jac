@@ -13,7 +13,7 @@ import from urllib.parse { urlencode }
 import from urllib.request { Request, urlopen }
 import from datetime { datetime, timedelta }
 import from services.seed_data {
-    SOURCES, CATEGORIES, PLACES, VENUES, ORGANIZERS, EVENTS, ALERTS, CIVIC, PERSONAS
+    SOURCES, CATEGORIES, PLACES, VENUES, ORGANIZERS, EVENTS, ALERTS, CIVIC, PERSONAS, LANDMARKS
 }
 import from services { pulse_llm }
 import from services.brief_editor { edit_brief, strongest_first }
@@ -41,6 +41,7 @@ node PulseNode {
         address: str = "",
         source_name: str = "",
         source_url: str = "",
+        posted_by: str = "",
         path: list[list[float]] = [];
 }
 
@@ -136,6 +137,7 @@ obj Dossier {
         venue: str = "",
         address: str = "",
         organizer: str = "",
+        posted_by: str = "",
         price: float = 0.0,
         categories: list[str] = [],
         source_name: str = "",
@@ -179,6 +181,8 @@ obj FilterSpec {
         price: str = "any",
         time: str = "week",
         date: str = "",
+        community: bool = True,
+        community_only: bool = False,
         distance: float = 0.0,
         reply: str = "";
 }
@@ -273,6 +277,12 @@ def _hub -> Hub;
 def _miles(lat1: float, lng1: float, lat2: float, lng2: float) -> float;
 def _cats_of(n: PulseNode) -> list[str];
 def _venue_of(n: PulseNode) -> PulseNode | None;
+def _is_neighbors_board(n: PulseNode) -> bool;
+def _org_matches_categories(n: PulseNode, cats: list[str]) -> bool;
+def _pin_haystack(n: PulseNode) -> str;
+def _is_generic_city_address(addr: str) -> bool;
+def _match_landmark(hay: str) -> dict | None;
+def _resolve_pin_coords(n: PulseNode) -> dict | None;
 def llm_event_on_date(when_text: str, event_name: str, target_iso: str) -> bool by llm(
     temperature=0.0, max_tokens=20
 );
@@ -309,6 +319,8 @@ walker:pub EgoSnapshot {
         price: str = "any",
         time: str = "week",
         date: str = "",
+        community: bool = True,
+        community_only: bool = False,
         distance: float = 0.0,
         clat: float = 42.2780,
         clng: float = -83.7382,
@@ -331,6 +343,8 @@ walker:pub NetworkBrowse {
         price: str = "any",
         time: str = "week",
         date: str = "",
+        community: bool = True,
+        community_only: bool = False,
         distance: float = 0.0,
         clat: float = 42.2780,
         clng: float = -83.7382,
@@ -350,6 +364,8 @@ walker:pub MapSnapshot {
         price: str = "any",
         time: str = "week",
         date: str = "",
+        community: bool = True,
+        community_only: bool = False,
         distance: float = 0.0,
         clat: float = 42.2780,
         clng: float = -83.7382,
@@ -392,6 +408,16 @@ walker:pub GenerateBrief {
         use_ai: bool = True,
         debug: bool = False,
         score_only: bool = False,
+        categories: list[str] = [],
+        kinds: list[str] = [],
+        price: str = "any",
+        time: str = "week",
+        date: str = "",
+        community: bool = True,
+        community_only: bool = False,
+        distance: float = 0.0,
+        clat: float = 42.2780,
+        clng: float = -83.7382,
         reports: list[Brief] = [];
 
     can start with Root entry;
@@ -421,6 +447,17 @@ def:pub update_custom_profile(home_key: str, commute: str, interests: list[str])
 
 """Conversational refine: parse natural language into filters, merging with the prior view."""
 def:pub converse_query(text: str, prior: FilterSpec) -> FilterSpec;
+
+"""Post a neighbor-made event onto the shared graph. Shows up as a normal event node."""
+def:pub create_community_event(
+    name: str,
+    when: str,
+    desc: str = "",
+    category: str = "social",
+    posted_by: str = "Neighbor",
+    date: str = "",
+    price: float = 0.0
+) -> dict;
 
 """Persona catalogue with profile chips (shared demo personas only)."""
 def:pub list_personas() -> list[dict];

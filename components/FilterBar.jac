@@ -10,8 +10,15 @@ import from .ui.button { Button }
 import from .ui.input { Input }
 import from .ui.slider { Slider }
 import from .ui.toggle_group { ToggleGroup, ToggleGroupItem }
-import from .pulse_theme { all_categories, kind_options, default_filters, kind_color }
-sv import from ..services.pulse { converse_query, FilterSpec }
+import from .ui.select { Select, SelectTrigger, SelectValue, SelectContent, SelectItem }
+import from .pulse_theme {
+    all_categories,
+    kind_options,
+    default_filters,
+    kind_color,
+    future_date_chips
+}
+sv import from ..services.pulse { converse_query }
 
 def:pub FilterChip(
     label: str, active: bool, onToggle: Callable[[], None], color: str = ""
@@ -48,6 +55,9 @@ def:pub FilterBar(
     date: str = filters["date"] or "";
     distance: float = filters["distance"] or 0.0;
     reply: str = filters["reply"] or "";
+    include_posted: bool = filters["community"] != False;
+    dateChips: list[dict] = future_date_chips(14);
+    dayValue: str = date if date else "any";
 
     def patch(key: str, val: any) {
         nxt = {** filters};
@@ -85,6 +95,18 @@ def:pub FilterBar(
         }
     }
 
+    def on_day_select(v: str) {
+        if not v or v == "any" {
+            patch("date", "");
+        } else {
+            patch("date", v);
+        }
+    }
+
+    def set_distance_preset(mi: float) {
+        patch("distance", mi);
+    }
+
     async def ask -> None {
         text = draft.strip();
         if not text {
@@ -102,6 +124,8 @@ def:pub FilterBar(
                 "price": price,
                 "time": time,
                 "date": date,
+                "community": include_posted,
+                "community_only": False,
                 "distance": distance,
                 "reply": ""
             };
@@ -113,6 +137,8 @@ def:pub FilterBar(
                     "price": spec.price,
                     "time": spec.time,
                     "date": spec.date or "",
+                    "community": spec.community,
+                    "community_only": False,
                     "distance": spec.distance,
                     "reply": spec.reply,
                     "query": text
@@ -136,7 +162,8 @@ def:pub FilterBar(
         + (1 if price != "any" else 0)
         + (1 if time != "week" else 0)
         + (1 if date else 0)
-        + (1 if distance > 0.0 else 0);
+        + (1 if distance > 0.0 else 0)
+        + (0 if include_posted else 1);
 
     return
         <div className="flex flex-col gap-3">
@@ -199,6 +226,12 @@ def:pub FilterBar(
                             color={kind_color(k["value"])}
                         />
                     }}
+                    <FilterChip
+                        label="Posted"
+                        active={include_posted}
+                        onToggle={lambda { patch("community", not include_posted); }}
+                        color={kind_color("community")}
+                    />
                 </div>
             </div>
             <div className="flex flex-col gap-2">
@@ -249,6 +282,34 @@ def:pub FilterBar(
                         <ToggleGroupItem value="week">{"Week"}</ToggleGroupItem>
                     </ToggleGroup>
                 </div>
+                <div className="flex flex-col gap-2">
+                    <span className="text-xs font-medium text-muted-foreground">
+                        {"Day"}
+                    </span>
+                    <Select
+                        value={dayValue}
+                        onValueChange={lambda (v: str) { on_day_select(v); }}
+                    >
+                        <SelectTrigger
+                            className="h-8 w-full bg-card text-xs"
+                            aria-label="Filter by day"
+                            size="sm"
+                        >
+                            <SelectValue placeholder="Any day"/>
+                        </SelectTrigger>
+                        <SelectContent position="popper" align="start">
+                            <SelectItem value="any">{"Any day"}</SelectItem>
+                            {for chip in dateChips {
+                                <SelectItem
+                                    key={chip["iso"]}
+                                    value={str(chip["iso"])}
+                                >
+                                    {str(chip["label"])}
+                                </SelectItem>
+                            }}
+                        </SelectContent>
+                    </Select>
+                </div>
             </div>
             {showDistance
                 and <div className="flex flex-col gap-2">
@@ -259,6 +320,28 @@ def:pub FilterBar(
                         <span className="font-medium tabular-nums">
                             {("Any" if distance == 0.0 else f"{distance:.1f} mi")}
                         </span>
+                    </div>
+                    <div className="flex flex-wrap gap-1.5">
+                        <FilterChip
+                            label="Any"
+                            active={distance == 0.0}
+                            onToggle={lambda { set_distance_preset(0.0); }}
+                        />
+                        <FilterChip
+                            label="1 mi"
+                            active={distance == 1.0}
+                            onToggle={lambda { set_distance_preset(1.0); }}
+                        />
+                        <FilterChip
+                            label="2 mi"
+                            active={distance == 2.0}
+                            onToggle={lambda { set_distance_preset(2.0); }}
+                        />
+                        <FilterChip
+                            label="5 mi"
+                            active={distance == 5.0}
+                            onToggle={lambda { set_distance_preset(5.0); }}
+                        />
                     </div>
                     <Slider
                         min={0}

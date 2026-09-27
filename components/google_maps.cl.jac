@@ -4,7 +4,8 @@ import from .map_markers {
     maps_marker_icon,
     map_style_for,
     kind_emoji,
-    map_bg_color
+    map_bg_color,
+    primary_category
 }
 import from .pulse_theme { kind_color, kind_label, campus_lat, campus_lng }
 sv import from ..services.pulse { MapItem }
@@ -48,7 +49,8 @@ def:pub map_popup_html(
     }
     body_text = overview if overview else it.desc;
     tip_text = tip;
-    emoji = kind_emoji(it.kind);
+    emoji = kind_emoji(it.kind, it.categories);
+    topic = primary_category(it.categories);
     # Match app theme: dark → gray bubble + light type; light → light bubble + dark type.
     bg = "#232322" if dark else "#fafaf9";
     fg = "#f5f5f4" if dark else "#0c0a09";
@@ -78,6 +80,11 @@ def:pub map_popup_html(
         + muted
         + ";font-weight:600;letter-spacing:0.02em'>"
         + kind_label(it.kind)
+        + (
+            (" · " + topic)
+                if topic and it.kind == "event"
+                else ""
+        )
         + price
         + "</span></div>"
         + "<div style='font-size:15px;font-weight:650;line-height:1.25;color:"
@@ -298,7 +305,9 @@ def:pub sync_map_overlays(
                 "map": map_obj,
                 "title": it.name,
                 "zIndex": (20 if it.id == focus_id else 10),
-                "icon": maps_marker_icon(gm, it.kind, it.id == focus_id, dark)
+                "icon": maps_marker_icon(
+                    gm, it.kind, it.id == focus_id, dark, it.categories
+                )
             }
         );
         bind_marker_click(mk, info, map_obj, html, it.id, on_focus);

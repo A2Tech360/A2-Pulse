@@ -104,7 +104,8 @@ def:pub AppShell() -> JsxElement {
     }
 
     def set_filters(nxt: dict) {
-        filters = nxt;
+        # Always assign a fresh dict so Map/Network effects see the change.
+        filters = {** nxt};
     }
 
     def toggle_theme {
@@ -190,7 +191,15 @@ def:pub AppShell() -> JsxElement {
                             />
                         }
                     />
-                    <Route path="/monday" element={<MondayPage />} />
+                    <Route
+                        path="/monday"
+                        element={
+                            <MondayPage
+                                filters={filters}
+                                onFilters={set_filters}
+                            />
+                        }
+                    />
                     <Route path="/welcome" element={<WelcomePage dark={dark} />} />
                     <Route
                         path="*"

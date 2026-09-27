@@ -6,7 +6,8 @@ import from "@hugeicons/core-free-icons" { SparklesIcon, ArrowUpRight01Icon, Thu
 import from .ui.button { Button }
 import from .ui.skeleton { Skeleton }
 import from .ui.select { Select, SelectTrigger, SelectValue, SelectContent, SelectItem }
-import from .pulse_theme { kind_color, kind_label }
+import from .FilterBar { FilterBar }
+import from .pulse_theme { kind_color, kind_label, campus_lat, campus_lng }
 import from .profile_store { my_persona, load_profile, commute_verb }
 import from .net { with_timeout }
 import from .BriefDebugPanel { BriefDebugPanel }
@@ -19,6 +20,63 @@ glob PERSONA_TABS: list[dict] = [
 ];
 
 glob VOICE_STORAGE_KEY: str = "a2pulse.voice";
+
+def split_brief_words(text: str) -> list[str] {
+    raw: list[str] = text.split(" ");
+    out: list[str] = [];
+    for w in raw {
+        if w {
+            out = out + [w];
+        }
+    }
+    return out;
+}
+
+def word_index_at_char(text: str, char_idx: int) -> int {
+    if char_idx < 0 {
+        return 0;
+    }
+    words = split_brief_words(text);
+    if len(words) == 0 {
+        return -1;
+    }
+    pos: int = 0;
+    i: int = 0;
+    for w in words {
+        end = pos + len(w);
+        if char_idx < end {
+            return i;
+        }
+        pos = end + 1;    # space after word
+        i += 1;
+    }
+    return len(words) - 1;
+}
+
+def word_index_at_time(words: list[str], t: float, dur: float) -> int {
+    if len(words) == 0 or dur <= 0.0 {
+        return -1;
+    }
+    total: float = 0.0;
+    for w in words {
+        total = total + float(max(len(w), 1));
+    }
+    if total <= 0.0 {
+        return 0;
+    }
+    # Slight lead so the highlight feels on the word being spoken.
+    target: float = (max(0.0, min(t + 0.04, dur)) / dur) * total;
+    acc: float = 0.0;
+    i: int = 0;
+    for w in words {
+        acc = acc + float(max(len(w), 1));
+        if target <= acc {
+            return i;
+        }
+        i += 1;
+    }
+    return len(words) - 1;
+}
 
 # Starting tab from ?who=you|student|shop (onboarding lands on "you").
 def initial_tab() -> str {
@@ -33,7 +91,9 @@ def initial_tab() -> str {
     return "student";
 }
 
-def:pub MondayPage() -> JsxElement {
+def:pub MondayPage(
+    filters: dict, onFilters: Callable[[dict], None]
+) -> JsxElement {
     has persona: str = initial_tab(),
         brief: Brief | None = None,
         loading: bool = False,
@@ -45,7 +105,8 @@ def:pub MondayPage() -> JsxElement {
         voice_id: str = "",
         me: dict = {},
         voice_note: str = "",
-        note: str = "";
+        note: str = "",
+        spoken_idx: int = -1;
 
     nav = useNavigate();
 
@@ -84,8 +145,25 @@ def:pub MondayPage() -> JsxElement {
         return home + ", " + commute_verb(mode);
     }
 
+    def include_posted() -> bool {
+        return filters["community"] != False;
+    }
+
     async def run_brief(who: str, ai: bool) -> any {
-        res = root spawn GenerateBrief(persona=who, use_ai=ai);
+        res = root spawn GenerateBrief(
+            persona=who,
+            use_ai=ai,
+            categories=filters["categories"] or [],
+            kinds=filters["kinds"] or [],
+            price=filters["price"] or "any",
+            time=filters["time"] or "week",
+            date=filters["date"] or "",
+            community=include_posted(),
+            community_only=False,
+            distance=filters["distance"] or 0.0,
+            clat=campus_lat(),
+            clng=campus_lng()
+        );
         return res;
     }
 
@@ -163,7 +241,7 @@ def:pub MondayPage() -> JsxElement {
         }
     }
 
-    can with [persona] entry {
+    can with (persona, filters) entry {
         stop_audio();
         generate();
     }
@@ -186,10 +264,27 @@ def:pub MondayPage() -> JsxElement {
             p.pause();
             w.__pulsePlayer = None;
         }
+        raf: any = w.__pulseSpeakRaf;
+        if raf {
+            w.cancelAnimationFrame(raf);
+            w.__pulseSpeakRaf = None;
+        }
         # Invalidate any in-flight voice request (state reads are stale inside async handlers).
         w.__pulseVoiceReq = (w.__pulseVoiceReq or 0) + 1;
         speaking = False;
         voice_loading = False;
+        spoken_idx = -1;
+    }
+
+    def finish_speak() {
+        speaking = False;
+        spoken_idx = -1;
+        w: any = window;
+        raf: any = w.__pulseSpeakRaf;
+        if raf {
+            w.cancelAnimationFrame(raf);
+            w.__pulseSpeakRaf = None;
+        }
     }
 
     # Browser voice, used when ElevenLabs is not configured or fails.
@@ -198,12 +293,49 @@ def:pub MondayPage() -> JsxElement {
         if not w.speechSynthesis {
             return;
         }
+        words = split_brief_words(text);
+        spoken_idx = 0 if len(words) > 0 else -1;
         u: any = new(w.SpeechSynthesisUtterance, text);
         u.rate = 1.03;
-        u.onend = lambda { speaking = False; };
+        u.onboundary = lambda (e: any) {
+            name: str = str(e.name or "");
+            if name == "word" or name == "Word" or not name {
+                spoken_idx = word_index_at_char(text, int(e.charIndex or 0));
+            }
+        };
+        u.onend = lambda { finish_speak(); };
+        u.onerror = lambda { finish_speak(); };
         w.speechSynthesis.cancel();
         w.speechSynthesis.speak(u);
         speaking = True;
+    }
+
+    def track_audio_words(a: any, text: str) {
+        words = split_brief_words(text);
+        if len(words) == 0 {
+            return;
+        }
+        w: any = window;
+        def tick() {
+            player: any = w.__pulsePlayer;
+            if not player or player != a {
+                return;
+            }
+            dur: float = float(player.duration or 0.0);
+            cur: float = float(player.currentTime or 0.0);
+            if dur > 0.0 and not player.paused {
+                spoken_idx = word_index_at_time(words, cur, dur);
+            }
+            w.__pulseSpeakRaf = w.requestAnimationFrame(lambda (_t: any) { tick(); });
+        }
+        a.ontimeupdate = lambda {
+            dur2: float = float(a.duration or 0.0);
+            if dur2 > 0.0 {
+                spoken_idx = word_index_at_time(words, float(a.currentTime or 0.0), dur2);
+            }
+        };
+        spoken_idx = 0;
+        w.__pulseSpeakRaf = w.requestAnimationFrame(lambda (_t: any) { tick(); });
     }
 
     async def play_audio -> None {
@@ -220,6 +352,7 @@ def:pub MondayPage() -> JsxElement {
         text: str = brief.summary;
         voice_loading = True;
         voice_note = "";
+        spoken_idx = -1;
         res: dict = {"audio": "", "error": ""};
         try {
             # 12 s, not the usual 8: ElevenLabs needs ~5 s for a full brief, plus a cold voice-list check.
@@ -245,22 +378,24 @@ def:pub MondayPage() -> JsxElement {
             return;
         }
         a: any = new(w.Audio, res["audio"]);
-        a.onended = lambda { speaking = False; };
+        a.onended = lambda { finish_speak(); };
         a.onerror = lambda {
             voice_note = "The studio voice couldn't play, so your browser is reading the brief.";
             speak_fallback(text);
         };
         w.__pulsePlayer = a;
         speaking = True;
+        track_audio_words(a, text);
         a.play();
     }
 
-    return <div className="mx-auto flex w-full max-w-6xl flex-col gap-8 pt-8 pb-12 pl-4 pr-4 sm:pl-6 sm:pr-6 animate-in fade-in slide-in-from-bottom-2 duration-500">
+    return <div className="flex flex-1 flex-col bg-background text-foreground lg:flex-row">
+        <div className="mx-auto flex w-full max-w-6xl flex-1 flex-col gap-8 pt-8 pb-12 pl-4 pr-4 sm:pl-6 sm:pr-6 animate-in fade-in slide-in-from-bottom-2 duration-500 lg:max-w-none">
         {#* headline *#}
         <div className="grid gap-6 lg:grid-cols-[1.4fr_1fr] lg:items-end">
             <div className="flex flex-col gap-1.5">
                 <h2 className="text-2xl font-semibold tracking-tight">{"My Monday"}</h2>
-                <p className="max-w-lg text-sm text-muted-foreground">{"The five things that touch your week, with what to do about each."}</p>
+                <p className="max-w-lg text-sm text-muted-foreground">{"The five things that touch your week — same filters as Network and Map."}</p>
             </div>
             <div className="flex flex-col gap-2">
                 <div className="flex items-center justify-end gap-3">
@@ -334,10 +469,36 @@ def:pub MondayPage() -> JsxElement {
             <article className="rounded-xl border bg-card pt-6 pb-6 pl-6 pr-6 shadow-sm">
                 <div className="flex items-center justify-between gap-3">
                     <span className="text-xs font-medium">{"Your brief"}</span>
-                    <span className="text-xs text-muted-foreground">{"Written by AI" if brief.ai else "Assembled by the Editor walker"}</span>
+                    <span className="text-xs text-muted-foreground">
+                        {(
+                            "Following along"
+                                if speaking
+                                else (
+                                    "Written by AI"
+                                        if brief.ai
+                                        else "Assembled by the Editor walker"
+                                )
+                        )}
+                    </span>
                 </div>
                 <p className="mt-3 text-base leading-relaxed text-foreground/90">
-                    {brief.summary}
+                    {for (wi, word) in enumerate(
+                        split_brief_words(brief.summary if brief else "")
+                    ) {
+                        <span
+                            key={wi}
+                            className={
+                                "rounded-sm transition-colors duration-100 "
+                                + (
+                                    "bg-amber-300/90 px-0.5 font-medium text-stone-900 dark:bg-amber-400/50 dark:text-foreground"
+                                        if wi == spoken_idx
+                                        else ""
+                                )
+                            }
+                        >
+                            {(word + " ")}
+                        </span>
+                    }}
                 </p>
             </article>
             <div className="flex flex-col gap-3 border-l-0 lg:border-l lg:pl-6">
@@ -422,5 +583,15 @@ def:pub MondayPage() -> JsxElement {
             <Button variant="outline" size="sm" onClick={lambda (e: MouseEvent) { widen_brief(); }}>{widen_label()}</Button>
         </div>}
         <BriefDebugPanel persona={target_persona(persona)} />
+        </div>
+        <aside className="flex w-full flex-col gap-4 border-t border-border bg-background pt-6 pb-6 pl-6 pr-6 lg:w-[360px] lg:shrink-0 lg:border-l lg:border-t-0 lg:pt-8">
+            <div className="flex flex-col gap-1">
+                <h3 className="text-sm font-semibold text-foreground">{"Shared filters"}</h3>
+                <p className="text-xs text-muted-foreground">
+                    {"Same chips as Network and Map — narrow the brief when the graph is crowded."}
+                </p>
+            </div>
+            <FilterBar filters={filters} onChange={onFilters} showDistance={True}/>
+        </aside>
     </div>;
 }
