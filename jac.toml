@@ -54,6 +54,7 @@ react-resizable-panels = "4.12.4"
 recharts = "3.10.1"
 sonner = "2.0.8"
 vaul = "1.1.2"
+d3-force = "^3.0.0"
 
 [dependencies.npm.dev]
 vite = "^6.4.1"

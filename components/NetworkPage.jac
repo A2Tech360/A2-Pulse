@@ -1,74 +1,552 @@
-"""Network tab: the Ann Arbor web as a living graph (EgoSnapshot walker)."""
+"""Network tab: accumulating lens browse with force layout."""
 
 import from "@hugeicons/react" { HugeiconsIcon }
 import from "@hugeicons/core-free-icons" {
     Search01Icon,
     Cancel01Icon,
     ArrowUpRight01Icon,
-    Analytics01Icon
+    Analytics01Icon,
+    ArrowLeft01Icon
 }
+import from "d3-force" {
+    forceSimulation,
+    forceLink,
+    forceManyBody,
+    forceCenter,
+    forceCollide
+}
+import from react { useEffect }
 import from .ui.input { Input }
-import from .ui.slider { Slider }
 import from .ui.skeleton { Skeleton }
 import from .ui.button { Button }
+import from .ui.select {
+    Select,
+    SelectTrigger,
+    SelectValue,
+    SelectContent,
+    SelectItem
+}
 import from .FilterBar { FilterBar }
-import from .pulse_theme { kind_color, kind_label }
+import from .pulse_theme { kind_color, kind_label, future_date_chips, default_filters }
 import from .net { with_timeout }
 
 glob CAMPUS_LAT: float = 42.2780;
 glob CAMPUS_LNG: float = -83.7382;
+glob PAN_GAIN: float = 0.38;
+glob FORCE_LINK_DIST: float = 100.0;
+glob FORCE_LINK_STRENGTH: float = 0.28;
+glob FORCE_CHARGE: float = -120.0;
+glob FORCE_ALPHA: float = 0.35;
+glob FORCE_ALPHA_SOFT: float = 0.045;
+glob FORCE_DRAG_ALPHA: float = 0.12;
+glob FORCE_VELOCITY_DECAY: float = 0.72;
+glob FORCE_DRAG_THRESHOLD: float = 5.0;
+glob VIEW_W: float = 1200.0;
+glob VIEW_H: float = 800.0;
+glob ZOOM_MIN: float = 0.45;
+glob ZOOM_MAX: float = 3.4;
+glob ZOOM_WHEEL_STEP: float = 0.00135;
+glob ZOOM_SPREAD_GAIN: float = 0.95;
+
+glob LEGEND: list[str] = [
+    "lens",
+    "place",
+    "venue",
+    "category",
+    "organizer",
+    "event",
+    "alert",
+    "civic"
+];
+glob LENS_STARTERS: list[dict] = [
+    {"key": "all", "name": "All"},
+    {"key": "lens-places", "name": "Places"},
+    {"key": "lens-topics", "name": "Topics"},
+    {"key": "lens-who", "name": "Hosts"},
+    {"key": "lens-city", "name": "City"}
+];
+glob LENS_ONLY: list[str] = [
+    "lens-places",
+    "lens-topics",
+    "lens-who",
+    "lens-city"
+];
+glob NET_AUTO_SYNCED: bool = False;
+
+def node_radius(depth: int, kind: str) -> float {
+    if kind == "lens" and depth == 0 {
+        return 22.0;
+    }
+    if depth == 0 {
+        return 18.0;
+    }
+    if kind == "lens" or kind == "place" or kind == "category" {
+        return 14.0;
+    }
+    if kind == "venue" or kind == "organizer" {
+        return 11.0;
+    }
+    return 8.0;
+}
+
+def is_leaf_kind(kind: str) -> bool {
+    return kind in ["event", "alert", "civic"];
+}
 sv import from ..services.pulse {
-    EgoSnapshot,
+    NetworkBrowse,
     SearchArchive,
     GetDossier,
+    dossier_images,
     Snapshot,
     GNode,
     GEdge,
-    Dossier
+    Dossier,
+    DossierImage,
+    DossierMedia
 }
+sv import from ..services.event_ingest { sync_online_events, SyncReport }
 
-glob LEGEND: list[str] = [
-         "event",
-         "venue",
-         "organizer",
-         "category",
-         "alert",
-         "civic"
-     ];
-glob STARTERS: list[dict] = [
-         {"key": "cat-music", "name": "music"},
-         {"key": "o-jazz", "name": "U-M Jazz Collective"},
-         {"key": "a-plymouth", "name": "Plymouth Rd lane closure"},
-         {"key": "cat-civic", "name": "civic"},
-         {"key": "cat-food", "name": "food"}
-     ];
+def:pub DossierPanel(
+    dossier: Dossier,
+    onClose: Callable[[], None],
+    onOpenNode: Callable[[str], None],
+    onCenter: Callable[[str, str], None]
+) -> JsxElement {
+    has photos: list[DossierImage] = [],
+        photosLoading: bool = True,
+        photoReq: Ref[str] = Ref("");
+
+    where_bits = dossier.venue;
+    if dossier.address {
+        where_bits = where_bits + (" · " if where_bits else "") + dossier.address;
+    }
+    price_label = (
+        "Free" if dossier.price == 0.0 else f"${dossier.price:.0f}"
+    );
+
+    async def load_photos {
+        nid = dossier.id;
+        photoReq.current = nid;
+        photosLoading = True;
+        photos = [];
+        try {
+            media: DossierMedia = await dossier_images(nid);
+            if photoReq.current == nid {
+                photos = media.images if media.images else [];
+            }
+        } except Exception {
+            if photoReq.current == nid {
+                photos = [];
+            }
+        }
+        if photoReq.current == nid {
+            photosLoading = False;
+        }
+    }
+
+    can with [dossier.id] entry {
+        load_photos();
+    }
+
+    def bind_link(nid: str) -> Callable[[MouseEvent], None] {
+        captured: str = nid;
+        return lambda (e: MouseEvent) { onOpenNode(captured); };
+    }
+
+    return
+        <aside
+            className="absolute inset-y-0 right-0 z-30 flex w-full max-w-[min(100%,420px)] flex-col overflow-y-auto border-l border-border bg-background/95 pt-6 pb-6 pl-6 pr-6 shadow-xl backdrop-blur-sm animate-in fade-in slide-in-from-right-4 duration-300 sm:pl-8 sm:pr-8"
+            role="dialog"
+            aria-label="Node dossier"
+        >
+            <div className="flex items-start justify-between gap-4">
+                <span
+                    className="font-display text-[11px] font-semibold uppercase italic tracking-[0.14em]"
+                    style={{"color": kind_color(dossier.kind)}}
+                >
+                    {kind_label(dossier.kind)}
+                </span>
+                <button
+                    type="button"
+                    onClick={lambda (e: MouseEvent) { onClose(); }}
+                    className="kicker inline-flex items-center gap-1.5 text-muted-foreground transition-colors hover:text-foreground"
+                >
+                    <HugeiconsIcon
+                        icon={Cancel01Icon}
+                        strokeWidth={2}
+                        className="size-3.5"
+                    />
+                    {"Close"}
+                </button>
+            </div>
+            <h2 className="mt-4 font-display text-2xl font-bold leading-tight tracking-tight text-foreground sm:text-[1.65rem]">
+                {dossier.name}
+            </h2>
+            {photosLoading
+                and <div className="mt-4 overflow-hidden rounded-xl border border-border bg-muted/40">
+                    <Skeleton className="h-40 w-full rounded-none"/>
+                </div>}
+            {not photosLoading
+                and len(photos) > 0
+                and <div className="mt-4 flex flex-col gap-2">
+                    <div
+                        className={(
+                            "grid gap-2 "
+                            + (
+                                "grid-cols-1"
+                                    if len(photos) == 1
+                                    else "grid-cols-2"
+                            )
+                        )}
+                    >
+                        {for (i, im) in enumerate(photos) {
+                            <figure
+                                key={im.url + str(i)}
+                                className={(
+                                    "overflow-hidden rounded-xl border border-border bg-muted/30 "
+                                    + (
+                                        "col-span-2"
+                                            if i == 0 and len(photos) > 1
+                                            else ""
+                                    )
+                                )}
+                            >
+                                <img
+                                    src={im.url}
+                                    alt={im.caption if im.caption else dossier.name}
+                                    loading="lazy"
+                                    referrerPolicy="no-referrer"
+                                    className={(
+                                        "w-full object-cover "
+                                        + (
+                                            "max-h-52"
+                                                if i == 0
+                                                else "aspect-[4/3] max-h-36"
+                                        )
+                                    )}
+                                    onError={lambda (e: any) {
+                                        t: any = e.target;
+                                        if t and t.style {
+                                            t.style.display = "none";
+                                        }
+                                    }}
+                                />
+                                {(im.caption or im.credit)
+                                    and <figcaption className="border-t border-border pt-1.5 pb-1.5 pl-2.5 pr-2.5 text-[10px] leading-snug text-muted-foreground">
+                                        {(
+                                            im.caption
+                                            + (
+                                                " · " + im.credit
+                                                    if im.credit
+                                                    else ""
+                                            )
+                                                if im.caption
+                                                else im.credit
+                                        )}
+                                    </figcaption>}
+                            </figure>
+                        }}
+                    </div>
+                </div>}
+            {dossier.desc
+                and <p className="mt-4 text-[15px] leading-relaxed text-foreground/85">
+                    {dossier.desc}
+                </p>}
+            <dl className="mt-6 flex flex-col gap-2.5 border-t border-border pt-5 text-sm">
+                {dossier.when
+                    and <div className="flex items-baseline gap-4">
+                        <dt className="w-20 shrink-0 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+                            {"When"}
+                        </dt>
+                        <dd className="text-foreground">{dossier.when}</dd>
+                    </div>}
+                {where_bits
+                    and <div className="flex items-baseline gap-4">
+                        <dt className="w-20 shrink-0 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+                            {"Where"}
+                        </dt>
+                        <dd className="text-foreground">{where_bits}</dd>
+                    </div>}
+                {dossier.organizer
+                    and <div className="flex items-baseline gap-4">
+                        <dt className="w-20 shrink-0 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+                            {"Who"}
+                        </dt>
+                        <dd className="text-foreground">{dossier.organizer}</dd>
+                    </div>}
+                {dossier.kind == "event"
+                    and <div className="flex items-baseline gap-4">
+                        <dt className="w-20 shrink-0 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+                            {"Price"}
+                        </dt>
+                        <dd
+                            className="font-medium"
+                            style={{"color": kind_color(dossier.kind)}}
+                        >
+                            {price_label}
+                        </dd>
+                    </div>}
+                {dossier.source_name
+                    and <div className="flex items-baseline gap-4">
+                        <dt className="w-20 shrink-0 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+                            {"Source"}
+                        </dt>
+                        <dd className="text-foreground">
+                            {dossier.source_url
+                                and <a
+                                    href={dossier.source_url}
+                                    target="_blank"
+                                    rel="noreferrer"
+                                    className="inline-flex items-center gap-1 font-medium text-primary hover:underline"
+                                >
+                                    {dossier.source_name}
+                                    <HugeiconsIcon
+                                        icon={ArrowUpRight01Icon}
+                                        strokeWidth={2}
+                                        className="size-3.5"
+                                    />
+                                </a>}
+                            {not dossier.source_url and dossier.source_name}
+                        </dd>
+                    </div>}
+            </dl>
+            {len(dossier.categories) > 0
+                and <div className="mt-5 flex flex-wrap gap-1.5">
+                    {for c in dossier.categories {
+                        <span
+                            key={c}
+                            className="rounded-md border border-border pt-0.5 pb-0.5 pl-2 pr-2 text-[11px] text-muted-foreground"
+                        >
+                            {c}
+                        </span>
+                    }}
+                </div>}
+            {len(dossier.links) > 0
+                and <div className="mt-6 border-t border-border pt-5">
+                    <span className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+                        {"Tied to"}
+                    </span>
+                    <ul className="mt-3 flex flex-col gap-1.5">
+                        {for ln in dossier.links {
+                            <li key={ln.id}>
+                                <button
+                                    type="button"
+                                    onClick={bind_link(ln.id)}
+                                    className="flex w-full items-center gap-2 rounded-md pt-1.5 pb-1.5 pl-1 pr-1 text-left text-sm hover:bg-muted"
+                                >
+                                    <span
+                                        className="size-2 shrink-0 rounded-full"
+                                        style={{
+                                            "backgroundColor": kind_color(ln.kind)
+                                        }}
+                                    />
+                                    <span className="flex-1 truncate font-medium">
+                                        {ln.name}
+                                    </span>
+                                    <span className="kicker text-muted-foreground">
+                                        {kind_label(ln.kind)}
+                                    </span>
+                                </button>
+                            </li>
+                        }}
+                    </ul>
+                </div>}
+            <div className="mt-auto flex flex-wrap gap-2 pt-8">
+                <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={lambda (e: MouseEvent) {
+                        onCenter(dossier.key, dossier.name);
+                    }}
+                >
+                    {"Center here"}
+                </Button>
+            </div>
+        </aside>;
+}
 
 def:pub NetworkPage(
     filters: dict, onFilters: Callable[[dict], None], dark: bool = True
 ) -> JsxElement {
-    has centerKey: str = "cat-music",
-        centerName: str = "music",
-        hops: int = 2,
+    has focusKey: str = "root",
+        focusName: str = "Ann Arbor",
+        activeTab: str = "all",
+        trail: list[dict] = [{"key": "root", "name": "Ann Arbor"}],
+        expandedKeys: list[str] = ["root"],
         nodes: list[GNode] = [],
         edges: list[GEdge] = [],
         loading: bool = True,
         error: str = "",
         query: str = "",
         results: list[GNode] = [],
+        searched: str = "",
         selected: Dossier | None = None,
         selectedId: str = "",
         hoverId: str = "",
-        searched: str = "",
-        showFilters: bool = False;
+        showFilters: bool = False,
+        panX: float = 0.0,
+        panY: float = 0.0,
+        zoom: float = 1.0,
+        dragging: bool = False,
+        draggingNode: bool = False,
+        layoutTick: int = 0,
+        svgRef: Ref[any] = Ref(None),
+        canvasRef: Ref[any] = Ref(None),
+        dragSession: Ref[any] = Ref(
+            {
+                "active": False,
+                "didPan": False,
+                "suppressClick": False,
+                "lastX": 0.0,
+                "lastY": 0.0
+            }
+        ),
+        nodeDrag: Ref[any] = Ref(
+            {
+                "active": False,
+                "id": "",
+                "didDrag": False,
+                "startX": 0.0,
+                "startY": 0.0
+            }
+        ),
+        panRef: Ref[any] = Ref({"x": 0.0, "y": 0.0}),
+        zoomRef: Ref[float] = Ref(1.0),
+        lastForceZoom: Ref[float] = Ref(1.0),
+        pinchRef: Ref[any] = Ref(
+            {
+                "active": False,
+                "id1": 0,
+                "id2": 0,
+                "startDist": 0.0,
+                "startZoom": 1.0,
+                "pts": {}
+            }
+        ),
+        focusKeyRef: Ref[str] = Ref("root"),
+        rootSeq: Ref[int] = Ref(0),
+        expandSeq: Ref[int] = Ref(0),
+        simRef: Ref[any] = Ref(None),
+        simById: Ref[any] = Ref({}),
+        rafPending: Ref[bool] = Ref(False),
+        tickCount: Ref[int] = Ref(0),
+        syncing: bool = False,
+        syncMsg: str = "",
+        didAutoSync: bool = False,
+        filtersSeen: Ref[bool] = Ref(False);
 
-    async def fetch_graph -> any {
-        res = root spawn EgoSnapshot(
-            center_key=centerKey,
-            hops=hops,
+    def key_in_expanded(key: str) -> bool {
+        for k in expandedKeys {
+            if k == key {
+                return True;
+            }
+        }
+        return False;
+    }
+
+    def node_dim(n: GNode) -> float {
+        # Full for focus + its neighbors; mid for trail; soft for the rest.
+        if n.key == focusKey or n.id == selectedId or n.id == hoverId {
+            return 1.0;
+        }
+        fid = "";
+        for m in nodes {
+            if m.key == focusKey {
+                fid = m.id;
+            }
+        }
+        if fid {
+            for e in edges {
+                if (e.source == fid and e.target == n.id) or (
+                    e.target == fid and e.source == n.id
+                ) {
+                    return 0.92;
+                }
+            }
+        }
+        for step in trail {
+            if str(step["key"]) == n.key {
+                return 0.5;
+            }
+        }
+        return 0.22;
+    }
+
+    def edge_dim(src_id: str, tgt_id: str) -> float {
+        fid = "";
+        for n in nodes {
+            if n.key == focusKey {
+                fid = n.id;
+            }
+        }
+        if hoverId and (src_id == hoverId or tgt_id == hoverId) {
+            return 0.85;
+        }
+        if selectedId and (src_id == selectedId or tgt_id == selectedId) {
+            return 0.85;
+        }
+        if fid and (src_id == fid or tgt_id == fid) {
+            return 0.9;
+        }
+        return 0.14;
+    }
+
+    def clamp_zoom(z: float) -> float {
+        if z < ZOOM_MIN {
+            return ZOOM_MIN;
+        }
+        if z > ZOOM_MAX {
+            return ZOOM_MAX;
+        }
+        return z;
+    }
+
+    def reset_camera {
+        panRef.current = {"x": 0.0, "y": 0.0};
+        panX = 0.0;
+        panY = 0.0;
+        zoomRef.current = 1.0;
+        zoom = 1.0;
+        lastForceZoom.current = 0.0;
+        retune_forces_for_zoom(1.0);
+    }
+
+    def is_lens_key(key: str) -> bool {
+        for k in LENS_ONLY {
+            if k == key {
+                return True;
+            }
+        }
+        return False;
+    }
+
+    def seed_lens_hubs(hubs: list[GNode]) {
+        # Spread the four browse hubs so overview isn't a tight cluster.
+        slots: list[list[float]] = [
+            [340.0, 250.0],
+            [860.0, 250.0],
+            [340.0, 560.0],
+            [860.0, 560.0]
+        ];
+        i: int = 0;
+        for h in hubs {
+            if i >= len(slots) {
+                break;
+            }
+            h.x = slots[i][0];
+            h.y = slots[i][1];
+            i += 1;
+        }
+    }
+
+    async def browse_raw(want: str) -> any {
+        res = root spawn NetworkBrowse(
+            focus_key=want,
             categories=filters["categories"] or [],
             kinds=filters["kinds"] or [],
             price=filters["price"] or "any",
             time=filters["time"] or "week",
+            date=filters["date"] or "",
             distance=filters["distance"] or 0.0,
             clat=CAMPUS_LAT,
             clng=CAMPUS_LNG
@@ -76,36 +554,1027 @@ def:pub NetworkPage(
         return res;
     }
 
-    async def load_graph -> None {
-        loading = True;
-        error = "";
-        w: any = window;
-        req: int = (w.__pulseGraphReq or 0) + 1;
-        w.__pulseGraphReq = req;
+    # 8 s deadline: a slow or dead server shows the error + Retry instead of hanging.
+    async def fetch_browse(want: str) -> Snapshot | None {
         res: any = None;
         try {
-            res = await with_timeout(fetch_graph(), None);
+            res = await with_timeout(browse_raw(want), None);
         } except Exception {
-            res = None;
+            return None;
         }
-        if w.__pulseGraphReq != req {
+        if res is not None and res.reports and len(res.reports) > 0 {
+            return res.reports[0];
+        }
+        return None;
+    }
+
+    async def load_overview {
+        loading = True;
+        error = "";
+        activeTab = "all";
+        focusKeyRef.current = "root";
+        rs: int = int(rootSeq.current) + 1;
+        rootSeq.current = rs;
+        expandSeq.current = int(expandSeq.current) + 1;
+        snap = await fetch_browse("root");
+        if int(rootSeq.current) != rs {
             return;
         }
-        if res is None {
+        if snap is None {
             error = "Can't reach the A2 Pulse server right now. Check your connection, then retry.";
-        } elif res.reports and len(res.reports) > 0 {
-            snap: Snapshot = res.reports[0];
-            nodes = snap.nodes;
-            edges = snap.edges;
-        } else {
             nodes = [];
             edges = [];
+            loading = False;
+            return;
+        }
+        merged_nodes: list[GNode] = [];
+        merged_edges: list[GEdge] = [];
+        have: dict[str, bool] = {};
+        for n in snap.nodes {
+            if n.key == "root" {
+                n.x = VIEW_W / 2.0;
+                n.y = VIEW_H / 2.0;
+            }
+            merged_nodes = merged_nodes + [n];
+            have[n.id] = True;
+            if n.key {
+                have[n.key] = True;
+            }
+        }
+        for e in snap.edges {
+            merged_edges = merged_edges + [e];
+        }
+        hubs: list[GNode] = [];
+        for n in merged_nodes {
+            if is_lens_key(n.key) {
+                hubs = hubs + [n];
+            }
+        }
+        seed_lens_hubs(hubs);
+        # Paint hubs right away so the canvas isn't stuck empty.
+        nodes = merged_nodes;
+        edges = merged_edges;
+        expandedKeys = ["root"];
+        focusKey = "root";
+        focusName = "Ann Arbor";
+        trail = [{"key": "root", "name": "All"}];
+        selected = None;
+        selectedId = "";
+        loading = False;
+        exp: list[str] = ["root"];
+        for lens_key in LENS_ONLY {
+            if int(rootSeq.current) != rs or activeTab != "all" {
+                return;
+            }
+            child = await fetch_browse(lens_key);
+            if int(rootSeq.current) != rs or activeTab != "all" {
+                return;
+            }
+            if child is None {
+                continue;
+            }
+            exp = exp + [lens_key];
+            px: float = VIEW_W / 2.0;
+            py: float = VIEW_H / 2.0;
+            for h in hubs {
+                if h.key == lens_key {
+                    px = h.x;
+                    py = h.y;
+                }
+            }
+            i: int = 0;
+            for g in child.nodes {
+                if g.key == lens_key or g.id in have or g.key in have {
+                    continue;
+                }
+                slot: int = i % 10;
+                col: int = slot % 5;
+                row: int = 0 if slot < 5 else 1;
+                ox: float = float(col - 2) * 70.0;
+                oy: float = float(row) * 68.0 - 20.0;
+                g.x = round(px + ox, 1);
+                g.y = round(py + oy, 1);
+                merged_nodes = merged_nodes + [g];
+                have[g.id] = True;
+                if g.key {
+                    have[g.key] = True;
+                }
+                i += 1;
+            }
+            for e in child.edges {
+                dup: bool = False;
+                for ex in merged_edges {
+                    if ex.source == e.source and ex.target == e.target {
+                        dup = True;
+                    }
+                }
+                if not dup {
+                    merged_edges = merged_edges + [e];
+                }
+            }
+            # Progressive merge — keep hubs pinned via live positions.
+            nodes = merged_nodes;
+            edges = merged_edges;
+            expandedKeys = exp;
+        }
+        if int(rootSeq.current) != rs or activeTab != "all" {
+            return;
+        }
+        nodes = merged_nodes;
+        edges = merged_edges;
+        expandedKeys = exp;
+        error = "";
+    }
+
+    async def load_lens_tab(lens_key: str, lens_name: str) {
+        loading = True;
+        error = "";
+        activeTab = lens_key;
+        focusKeyRef.current = lens_key;
+        rs: int = int(rootSeq.current) + 1;
+        rootSeq.current = rs;
+        expandSeq.current = int(expandSeq.current) + 1;
+        # Clear prior sim so the isolated branch lays out cleanly.
+        simById.current = {};
+        snap = await fetch_browse(lens_key);
+        if int(rootSeq.current) != rs {
+            return;
+        }
+        if snap is None {
+            error = "Can't reach the A2 Pulse server right now. Check your connection, then retry.";
+            nodes = [];
+            edges = [];
+            loading = False;
+            return;
+        }
+        # Seed the lens hub near center; kids fan around it with room.
+        cx: float = VIEW_W / 2.0;
+        cy: float = VIEW_H / 2.0;
+        i: int = 0;
+        for g in snap.nodes {
+            if g.key == lens_key {
+                g.x = cx;
+                g.y = cy;
+            } else {
+                ang: float = (6.283185307 * float(i)) / float(
+                    max(len(snap.nodes) - 1, 1)
+                );
+                g.x = round(cx + 210.0 * (Math.cos(ang) as float), 1);
+                g.y = round(cy + 160.0 * (Math.sin(ang) as float), 1);
+                i += 1;
+            }
+        }
+        nodes = snap.nodes;
+        edges = snap.edges;
+        expandedKeys = [lens_key];
+        focusKey = lens_key;
+        focusName = lens_name;
+        trail = [
+            {"key": "root", "name": "All"},
+            {"key": lens_key, "name": lens_name}
+        ];
+        selected = None;
+        selectedId = "";
+        error = "";
+        loading = False;
+    }
+
+    async def switch_tab(tab_key: str, tab_name: str) {
+        reset_camera();
+        if tab_key == "all" {
+            await load_overview();
+        } else {
+            await load_lens_tab(tab_key, tab_name);
+        }
+    }
+
+    async def load_root {
+        await load_overview();
+    }
+
+    async def expand_into(key: str) {
+        if key == "" or key == "root" {
+            return;
+        }
+        es: int = int(expandSeq.current) + 1;
+        expandSeq.current = es;
+        rs_at_start: int = int(rootSeq.current);
+        loading = True;
+        snap = await fetch_browse(key);
+        if int(expandSeq.current) != es or int(rootSeq.current) != rs_at_start {
+            return;
+        }
+        if snap is None {
+            loading = False;
+            return;
+        }
+        # Parent live position (seed new kids nearby).
+        px: float = VIEW_W / 2.0;
+        py: float = VIEW_H / 2.0;
+        by_id: any = simById.current;
+        parent_id: str = "";
+        for n in nodes {
+            if n.key == key {
+                parent_id = n.id;
+                if by_id {
+                    try {
+                        d: any = by_id[n.id];
+                        if d and d["x"] is not None {
+                            px = float(d["x"]);
+                            py = float(d["y"]);
+                        } else {
+                            px = n.x;
+                            py = n.y;
+                        }
+                    } except Exception {
+                        px = n.x;
+                        py = n.y;
+                    }
+                } else {
+                    px = n.x;
+                    py = n.y;
+                }
+            }
+        }
+        have: dict[str, bool] = {};
+        for n in nodes {
+            have[n.id] = True;
+            if n.key {
+                have[n.key] = True;
+            }
+        }
+        edge_have: dict[str, bool] = {};
+        for e in edges {
+            edge_have[e.source + "|" + e.target] = True;
+            edge_have[e.target + "|" + e.source] = True;
+        }
+        merged_nodes: list[GNode] = [];
+        for n in nodes {
+            merged_nodes = merged_nodes + [n];
+        }
+        merged_edges: list[GEdge] = [];
+        for e in edges {
+            merged_edges = merged_edges + [e];
+        }
+        i: int = 0;
+        for g in snap.nodes {
+            if g.key == key {
+                # Ensure focus node exists (first expand from search).
+                if g.key not in have and g.id not in have {
+                    g.x = px;
+                    g.y = py;
+                    merged_nodes = merged_nodes + [g];
+                    have[g.id] = True;
+                    have[g.key] = True;
+                    parent_id = g.id;
+                }
+                continue;
+            }
+            if g.id in have or g.key in have {
+                continue;
+            }
+            slot: int = i % 12;
+            col: int = slot % 4;
+            row: int = 0;
+            if slot >= 8 {
+                row = 2;
+            } elif slot >= 4 {
+                row = 1;
+            }
+            ox: float = float(col - 1) * 52.0 - 26.0;
+            oy: float = float(row - 1) * 48.0;
+            g.x = round(px + ox + float(i) * 2.0, 1);
+            g.y = round(py + oy - float(i) * 1.5, 1);
+            merged_nodes = merged_nodes + [g];
+            have[g.id] = True;
+            if g.key {
+                have[g.key] = True;
+            }
+            i += 1;
+        }
+        for e in snap.edges {
+            ek = e.source + "|" + e.target;
+            if ek in edge_have {
+                continue;
+            }
+            merged_edges = merged_edges + [e];
+            edge_have[ek] = True;
+            edge_have[e.target + "|" + e.source] = True;
+        }
+        nodes = merged_nodes;
+        edges = merged_edges;
+        if not key_in_expanded(key) {
+            expandedKeys = expandedKeys + [key];
         }
         loading = False;
     }
 
-    can with (centerKey, hops, filters) entry {
-        load_graph();
+    async def reload_active_tab {
+        if activeTab == "all" or activeTab == "" {
+            await load_overview();
+            return;
+        }
+        tab_name: str = activeTab;
+        for s in LENS_STARTERS {
+            if str(s["key"]) == activeTab {
+                tab_name = str(s["name"]);
+            }
+        }
+        await load_lens_tab(activeTab, tab_name);
+    }
+
+    async def run_online_sync(force: bool) {
+        if syncing {
+            return;
+        }
+        syncing = True;
+        syncMsg = "Pulling public calendars...";
+        try {
+            rep: SyncReport = await sync_online_events(force);
+            syncMsg = rep.message;
+            if len(rep.errors) > 0 and rep.created + rep.updated == 0 {
+                syncMsg = rep.message + " (" + "; ".join(rep.errors[:2]) + ")";
+            }
+            if "Skipped" in rep.message and len(nodes) > 0 {
+                # Keep the current canvas — don't abort an in-flight overview.
+            } else {
+                await reload_active_tab();
+            }
+        } except Exception {
+            syncMsg = "Live sync failed — keeping the seeded archive.";
+            if len(nodes) == 0 {
+                await reload_active_tab();
+            }
+        }
+        syncing = False;
+    }
+
+    async can with entry {
+        # Load the canvas first — live sync blocks the server while it runs.
+        await load_overview();
+        if not NET_AUTO_SYNCED {
+            NET_AUTO_SYNCED = True;
+            run_online_sync(False);
+        }
+    }
+
+    can with [focusKey] entry {
+        focusKeyRef.current = focusKey;
+    }
+
+    # Filters reset the canvas to root (fresh walk); expanding never collapses.
+    # Skip the first run — initial load comes from sync / entry.
+    can with [filters] entry {
+        if not filtersSeen.current {
+            filtersSeen.current = True;
+            return;
+        }
+        focusKeyRef.current = "root";
+        focusKey = "root";
+        focusName = "Ann Arbor";
+        activeTab = "all";
+        trail = [{"key": "root", "name": "All"}];
+        reset_camera();
+        load_overview();
+    }
+
+    def schedule_layout_tick {
+        if rafPending.current {
+            return;
+        }
+        rafPending.current = True;
+        requestAnimationFrame(
+            lambda {
+                rafPending.current = False;
+                n: int = int(tickCount.current) + 1;
+                tickCount.current = n;
+                layoutTick = n;
+            }
+        );
+    }
+
+    def stop_simulation {
+        sim: any = simRef.current;
+        if sim {
+            try {
+                sim.stop();
+            } except Exception {
+            }
+        }
+        simRef.current = None;
+        # Keep simById so the next rebuild can inherit live positions
+        # (clearing it here caused hard flinch on every expand).
+    }
+
+    def rebuild_simulation {
+        prev: any = simById.current;
+        had_prev: bool = False;
+        try {
+            if prev and len(prev.keys()) > 0 {
+                had_prev = True;
+            }
+        } except Exception {
+            had_prev = bool(prev);
+        }
+        stop_simulation();
+        if len(nodes) == 0 {
+            simById.current = {};
+            schedule_layout_tick();
+            return;
+        }
+        by_id: dict[str, any] = {};
+        sim_nodes: list[any] = [];
+        for n in nodes {
+            sx: float = n.x if n.x != 0.0 or n.y != 0.0 else VIEW_W / 2.0;
+            sy: float = n.y if n.x != 0.0 or n.y != 0.0 else VIEW_H / 2.0;
+            svx: float = 0.0;
+            svy: float = 0.0;
+            if prev {
+                try {
+                    pd: any = prev[n.id];
+                    if pd and pd["x"] is not None and pd["y"] is not None {
+                        sx = float(pd["x"]);
+                        sy = float(pd["y"]);
+                        if pd["vx"] is not None {
+                            svx = float(pd["vx"]) * 0.12;
+                        }
+                        if pd["vy"] is not None {
+                            svy = float(pd["vy"]) * 0.12;
+                        }
+                    }
+                } except Exception {
+                }
+            }
+            d: dict[str, any] = {
+                "id": n.id,
+                "key": n.key,
+                "name": n.name,
+                "kind": n.kind,
+                "depth": n.depth,
+                "expandable": n.expandable,
+                "x": sx,
+                "y": sy,
+                "vx": svx,
+                "vy": svy,
+                "fx": None,
+                "fy": None
+            };
+            # In All overview, pin the big hubs so branches don't collapse together.
+            if activeTab == "all" and (
+                n.key == "root" or is_lens_key(n.key)
+            ) {
+                d["fx"] = sx;
+                d["fy"] = sy;
+            }
+            by_id[n.id] = d;
+            sim_nodes.append(d);
+        }
+        sim_links: list[any] = [];
+        for e in edges {
+            if e.source in by_id and e.target in by_id {
+                sim_links.append(
+                    {
+                        "source": e.source,
+                        "target": e.target,
+                        "label": e.label
+                    }
+                );
+            }
+        }
+        z_any0: any = zoomRef.current;
+        z_spread: float = zoom_spread(
+            float(z_any0) if z_any0 is not None else 1.0
+        );
+        link_f: any = (
+            forceLink(sim_links)
+            .id(lambda (d: any) -> str { return str(d["id"]); })
+            .distance(
+                FORCE_LINK_DIST
+                * (1.45 if activeTab == "all" else 1.0)
+                * z_spread
+            )
+            .strength(FORCE_LINK_STRENGTH)
+        );
+        charge_f: any = forceManyBody().strength(
+            lambda (d: any) -> float {
+                kind_v: any = d["kind"];
+                depth_v: any = d["depth"];
+                kind_s: str = str(kind_v) if kind_v else "";
+                depth_i: int = int(depth_v) if depth_v is not None else 2;
+                base: float = FORCE_CHARGE * z_spread;
+                if activeTab == "all" {
+                    base = FORCE_CHARGE * 1.55 * z_spread;
+                }
+                if kind_s == "lens" or depth_i == 0 {
+                    return base * 1.8;
+                }
+                if kind_s == "place" or kind_s == "category" {
+                    return base * 1.25;
+                }
+                return base;
+            }
+        );
+        # Soft center when expanding — hard center yanks everything on click.
+        center_strength: float = 0.008 if had_prev else (
+            0.08 if activeTab == "all" else 0.18
+        );
+        center_f: any = forceCenter(VIEW_W / 2.0, VIEW_H / 2.0).strength(
+            center_strength
+        );
+        collide_f: any = forceCollide().radius(
+            lambda (d: any) -> float {
+                depth_v: any = d["depth"];
+                kind_v: any = d["kind"];
+                depth_i: int = int(depth_v) if depth_v is not None else 2;
+                kind_s: str = str(kind_v) if kind_v else "";
+                return (
+                    node_radius(depth_i, kind_s)
+                    + (
+                        18.0
+                            if activeTab == "all"
+                                and (kind_s == "lens" or depth_i <= 1)
+                            else 8.0
+                    )
+                ) * z_spread;
+            }
+        ).strength(0.55 if had_prev else 0.75);
+        boot_alpha: float = FORCE_ALPHA_SOFT if had_prev else FORCE_ALPHA;
+        sim: any = (
+            forceSimulation(sim_nodes)
+            .force("link", link_f)
+            .force("charge", charge_f)
+            .force("center", center_f)
+            .force("collide", collide_f)
+            .velocityDecay(FORCE_VELOCITY_DECAY)
+            .on("tick", lambda { schedule_layout_tick(); })
+        );
+        sim.alphaTarget(0.0).alpha(boot_alpha).restart();
+        simRef.current = sim;
+        simById.current = by_id;
+        lastForceZoom.current = (
+            float(zoomRef.current) if zoomRef.current is not None else 1.0
+        );
+        schedule_layout_tick();
+    }
+
+    # Rebuild force layout whenever the walker snapshot changes.
+    useEffect(
+        lambda {
+            rebuild_simulation();
+            return lambda { stop_simulation(); };
+        },
+        [nodes, edges]
+    );
+
+    def view_scale -> float {
+        el = svgRef.current;
+        if not el {
+            return 1.0;
+        }
+        w = float(el.clientWidth) if el.clientWidth else VIEW_W;
+        h = float(el.clientHeight) if el.clientHeight else VIEW_H;
+        sx = w / VIEW_W;
+        sy = h / VIEW_H;
+        # SVG preserveAspectRatio slice ≈ cover = max(sx, sy)
+        return sx if sx > sy else sy;
+    }
+
+    def client_to_graph(cx: float, cy: float) -> list[float] {
+        el = svgRef.current;
+        if not el {
+            return [0.0, 0.0];
+        }
+        rect: any = el.getBoundingClientRect();
+        s = view_scale();
+        if s < 0.0001 {
+            s = 1.0;
+        }
+        z_any: any = zoomRef.current;
+        z: float = float(z_any) if z_any is not None else 1.0;
+        if z < 0.0001 {
+            z = 1.0;
+        }
+        ox = (float(rect.width) - VIEW_W * s) / 2.0;
+        oy = (float(rect.height) - VIEW_H * s) / 2.0;
+        svg_x = (cx - float(rect.left) - ox) / s;
+        svg_y = (cy - float(rect.top) - oy) / s;
+        p = panRef.current;
+        px_any: any = p["x"];
+        py_any: any = p["y"];
+        return [
+            (svg_x - float(px_any)) / z,
+            (svg_y - float(py_any)) / z
+        ];
+    }
+
+    def zoom_spread(z: float) -> float {
+        # How much extra layout breathing room to give at this zoom.
+        return 0.75 + z * ZOOM_SPREAD_GAIN;
+    }
+
+    def glyph_scale -> float {
+        # Keep bubbles ~constant on screen while positions pull apart.
+        z_any: any = zoomRef.current;
+        z: float = float(z_any) if z_any is not None else 1.0;
+        if z < 0.35 {
+            z = 0.35;
+        }
+        return 1.0 / z;
+    }
+
+    def draw_radius(depth: int, kind: str) -> float {
+        r = node_radius(depth, kind) * glyph_scale();
+        if r < 4.0 {
+            return 4.0;
+        }
+        return r;
+    }
+
+    def retune_forces_for_zoom(z: float) {
+        sim: any = simRef.current;
+        if not sim {
+            return;
+        }
+        prev_z: any = lastForceZoom.current;
+        pz: float = float(prev_z) if prev_z is not None else 1.0;
+        if abs(z - pz) < 0.04 {
+            return;
+        }
+        lastForceZoom.current = z;
+        spread = zoom_spread(z);
+        overview_m: float = 1.45 if activeTab == "all" else 1.0;
+        try {
+            link_f: any = sim.force("link");
+            if link_f {
+                link_f.distance(FORCE_LINK_DIST * overview_m * spread);
+            }
+            charge_f: any = sim.force("charge");
+            if charge_f {
+                charge_f.strength(
+                    lambda (d: any) -> float {
+                        kind_v: any = d["kind"];
+                        depth_v: any = d["depth"];
+                        kind_s: str = str(kind_v) if kind_v else "";
+                        depth_i: int = (
+                            int(depth_v) if depth_v is not None else 2
+                        );
+                        base: float = FORCE_CHARGE * spread;
+                        if activeTab == "all" {
+                            base = FORCE_CHARGE * 1.55 * spread;
+                        }
+                        if kind_s == "lens" or depth_i == 0 {
+                            return base * 1.8;
+                        }
+                        if kind_s == "place" or kind_s == "category" {
+                            return base * 1.25;
+                        }
+                        return base;
+                    }
+                );
+            }
+            collide_f: any = sim.force("collide");
+            if collide_f {
+                collide_f.radius(
+                    lambda (d: any) -> float {
+                        depth_v: any = d["depth"];
+                        kind_v: any = d["kind"];
+                        depth_i: int = (
+                            int(depth_v) if depth_v is not None else 2
+                        );
+                        kind_s: str = str(kind_v) if kind_v else "";
+                        pad: float = (
+                            18.0
+                                if activeTab == "all"
+                                    and (kind_s == "lens" or depth_i <= 1)
+                                else 10.0
+                        );
+                        return (node_radius(depth_i, kind_s) + pad) * spread;
+                    }
+                );
+            }
+            # Soft reopen — nodes drift apart instead of jumping.
+            sim.alphaTarget(0.0).alpha(0.14).restart();
+        } except Exception {
+        }
+        schedule_layout_tick();
+    }
+
+    def apply_zoom_at(cx: float, cy: float, next_z: float) {
+        before = client_to_graph(cx, cy);
+        nz = clamp_zoom(next_z);
+        zoomRef.current = nz;
+        zoom = nz;
+        el = svgRef.current;
+        if not el {
+            retune_forces_for_zoom(nz);
+            return;
+        }
+        rect: any = el.getBoundingClientRect();
+        s = view_scale();
+        if s < 0.0001 {
+            s = 1.0;
+        }
+        ox = (float(rect.width) - VIEW_W * s) / 2.0;
+        oy = (float(rect.height) - VIEW_H * s) / 2.0;
+        svg_x = (cx - float(rect.left) - ox) / s;
+        svg_y = (cy - float(rect.top) - oy) / s;
+        nx = svg_x - before[0] * nz;
+        ny = svg_y - before[1] * nz;
+        panRef.current = {"x": nx, "y": ny};
+        panX = nx;
+        panY = ny;
+        retune_forces_for_zoom(nz);
+    }
+
+    def pinch_distance(pts: any) -> float {
+        keys: list[str] = [];
+        try {
+            keys = list(pts.keys());
+        } except Exception {
+            return 0.0;
+        }
+        if len(keys) < 2 {
+            return 0.0;
+        }
+        a: any = pts[keys[0]];
+        b: any = pts[keys[1]];
+        dx: float = float(a["x"]) - float(b["x"]);
+        dy: float = float(a["y"]) - float(b["y"]);
+        return (Math.sqrt(dx * dx + dy * dy) as float);
+    }
+
+    def on_wheel_zoom(e: any) {
+        try {
+            e.preventDefault();
+        } except Exception {
+        }
+        dy: float = float(e.deltaY) if e.deltaY is not None else 0.0;
+        factor: float = Math.exp(0.0 - dy * ZOOM_WHEEL_STEP) as float;
+        z_now: any = zoomRef.current;
+        apply_zoom_at(
+            float(e.clientX),
+            float(e.clientY),
+            (float(z_now) if z_now is not None else 1.0) * factor
+        );
+    }
+
+    # Non-passive wheel so trackpad zoom can prevent page scroll.
+    useEffect(
+        lambda {
+            el_raw: any = canvasRef.current;
+            if not el_raw {
+                el_raw = svgRef.current;
+            }
+            if not el_raw {
+                return lambda {};
+            }
+            handler: any = on_wheel_zoom;
+            el_raw.addEventListener("wheel", handler, {"passive": False});
+            return lambda {
+                try {
+                    el_raw.removeEventListener("wheel", handler);
+                } except Exception {
+                }
+            };
+        },
+        [loading, nodes]
+    );
+
+    def zoom_by(factor: float) {
+        el = svgRef.current;
+        cx: float = 600.0;
+        cy: float = 400.0;
+        if el {
+            try {
+                rect: any = el.getBoundingClientRect();
+                cx = float(rect.left) + float(rect.width) / 2.0;
+                cy = float(rect.top) + float(rect.height) / 2.0;
+            } except Exception {
+            }
+        }
+        z_now: any = zoomRef.current;
+        cur: float = float(z_now) if z_now is not None else 1.0;
+        apply_zoom_at(cx, cy, cur * factor);
+    }
+
+    def live_xy(n: GNode) -> list[float] {
+        # layoutTick keeps this reading fresh while the sim runs.
+        _t: int = layoutTick;
+        by_id: any = simById.current;
+        if by_id {
+            try {
+                d: any = by_id[n.id];
+                if d and d["x"] is not None and d["y"] is not None {
+                    return [float(d["x"]), float(d["y"])];
+                }
+            } except Exception {
+            }
+        }
+        return [n.x, n.y];
+    }
+
+    def end_node_drag {
+        nd = nodeDrag.current;
+        if not nd["active"] {
+            return;
+        }
+        nid_any: any = nd["id"];
+        nid: str = str(nid_any) if nid_any else "";
+        by_id: any = simById.current;
+        if by_id and nid {
+            try {
+                d: any = by_id[nid];
+                if d {
+                    d["fx"] = None;
+                    d["fy"] = None;
+                }
+            } except Exception {
+            }
+        }
+        sim: any = simRef.current;
+        if sim {
+            try {
+                sim.alphaTarget(0.0);
+            } except Exception {
+            }
+        }
+        sess = dragSession.current;
+        sess["suppressClick"] = bool(nd["didDrag"]);
+        nd["active"] = False;
+        nd["id"] = "";
+        nd["didDrag"] = False;
+        draggingNode = False;
+        schedule_layout_tick();
+    }
+
+    def on_graph_pointer_down(e: MouseEvent) {
+        if e.button != 0 {
+            return;
+        }
+        nd = nodeDrag.current;
+        if nd["active"] {
+            return;
+        }
+        ev: any = e;
+        pid: int = int(ev.pointerId) if ev.pointerId is not None else 0;
+        pinch = pinchRef.current;
+        pts: any = pinch["pts"];
+        try {
+            pts[str(pid)] = {"x": float(e.clientX), "y": float(e.clientY)};
+            pinch["pts"] = pts;
+        } except Exception {
+        }
+        # Two fingers → pinch zoom (cancel pan).
+        try {
+            if len(list(pts.keys())) >= 2 {
+                pinch["active"] = True;
+                pinch["startDist"] = pinch_distance(pts);
+                z0: any = zoomRef.current;
+                pinch["startZoom"] = float(z0) if z0 is not None else 1.0;
+                sess0 = dragSession.current;
+                sess0["active"] = False;
+                dragging = False;
+                return;
+            }
+        } except Exception {
+        }
+        # Don't start a pan when the press is on a node — otherwise
+        # setPointerCapture steals the click and the dossier never opens.
+        t: any = e.target;
+        try {
+            if t and t.closest {
+                hit: any = t.closest("[data-node-id]");
+                if hit {
+                    return;
+                }
+            }
+        } except Exception {
+        }
+        sess = dragSession.current;
+        sess["active"] = True;
+        sess["didPan"] = False;
+        sess["lastX"] = float(e.clientX);
+        sess["lastY"] = float(e.clientY);
+        dragging = True;
+        el = svgRef.current;
+        if el and el.setPointerCapture and ev.pointerId is not None {
+            el.setPointerCapture(ev.pointerId);
+        }
+    }
+
+    def on_graph_pointer_move(e: MouseEvent) {
+        ev: any = e;
+        pid: int = int(ev.pointerId) if ev.pointerId is not None else 0;
+        pinch = pinchRef.current;
+        pts: any = pinch["pts"];
+        try {
+            if str(pid) in pts {
+                pts[str(pid)] = {"x": float(e.clientX), "y": float(e.clientY)};
+                pinch["pts"] = pts;
+            }
+        } except Exception {
+        }
+        if pinch["active"] {
+            dist = pinch_distance(pts);
+            sd_any: any = pinch["startDist"];
+            start_d: float = float(sd_any) if sd_any is not None else 0.0;
+            if start_d > 1.0 and dist > 1.0 {
+                mid_x: float = float(e.clientX);
+                mid_y: float = float(e.clientY);
+                try {
+                    keys = list(pts.keys());
+                    if len(keys) >= 2 {
+                        a: any = pts[keys[0]];
+                        b: any = pts[keys[1]];
+                        mid_x = (float(a["x"]) + float(b["x"])) / 2.0;
+                        mid_y = (float(a["y"]) + float(b["y"])) / 2.0;
+                    }
+                } except Exception {
+                }
+                sz_any: any = pinch["startZoom"];
+                sz: float = float(sz_any) if sz_any is not None else 1.0;
+                apply_zoom_at(mid_x, mid_y, sz * (dist / start_d));
+            }
+            return;
+        }
+        if nodeDrag.current["active"] {
+            return;
+        }
+        sess = dragSession.current;
+        if not sess["active"] {
+            return;
+        }
+        last_x: any = sess["lastX"];
+        last_y: any = sess["lastY"];
+        dx = float(e.clientX) - float(last_x);
+        dy = float(e.clientY) - float(last_y);
+        if abs(dx) > 4.0 or abs(dy) > 4.0 {
+            sess["didPan"] = True;
+        }
+        s = view_scale();
+        if s < 0.0001 {
+            s = 1.0;
+        }
+        z_any: any = zoomRef.current;
+        z: float = float(z_any) if z_any is not None else 1.0;
+        if z < 0.0001 {
+            z = 1.0;
+        }
+        p = panRef.current;
+        px_any: any = p["x"];
+        py_any: any = p["y"];
+        nx = float(px_any) + ((dx / (s * z)) * PAN_GAIN);
+        ny = float(py_any) + ((dy / (s * z)) * PAN_GAIN);
+        p["x"] = nx;
+        p["y"] = ny;
+        panX = nx;
+        panY = ny;
+        sess["lastX"] = float(e.clientX);
+        sess["lastY"] = float(e.clientY);
+    }
+
+    def on_graph_pointer_up(e: MouseEvent) {
+        ev2: any = e;
+        pid: int = int(ev2.pointerId) if ev2.pointerId is not None else 0;
+        pinch = pinchRef.current;
+        pts: any = pinch["pts"];
+        try {
+            if str(pid) in pts {
+                nxt: dict[str, any] = {};
+                for k in list(pts.keys()) {
+                    if k != str(pid) {
+                        nxt[k] = pts[k];
+                    }
+                }
+                pinch["pts"] = nxt;
+                pts = nxt;
+            }
+            if len(list(pts.keys())) < 2 {
+                pinch["active"] = False;
+                pinch["startDist"] = 0.0;
+            }
+        } except Exception {
+        }
+        if nodeDrag.current["active"] {
+            end_node_drag();
+            return;
+        }
+        if pinch["active"] {
+            return;
+        }
+        sess = dragSession.current;
+        # Swallow only the click that ends a pan; clear so later clicks work.
+        sess["suppressClick"] = bool(sess["didPan"]);
+        sess["active"] = False;
+        sess["didPan"] = False;
+        dragging = False;
+        el = svgRef.current;
+        if el and el.releasePointerCapture and ev2.pointerId is not None {
+            try {
+                el.releasePointerCapture(ev2.pointerId);
+            } except Exception {
+            }
+        }
     }
 
     async def fetch_search(q: str) -> any {
@@ -118,7 +1587,7 @@ def:pub NetworkPage(
         return res;
     }
 
-    async def run_search(q: str) -> None {
+    async def run_search(q: str) {
         query = q;
         if not q.strip() {
             results = [];
@@ -135,13 +1604,13 @@ def:pub NetworkPage(
             res = None;
         }
         if w.__pulseSearchReq != req or res is None {
-            return;    # superseded by newer typing, or the server is slow (the graph shows its own error)
+            return;    # superseded by newer typing, or the server is slow
         }
         results = res.reports[0] if res.reports and len(res.reports) > 0 else [];
         searched = q;
     }
 
-    async def open_dossier(id: str) -> None {
+    async def open_dossier(id: str) {
         selectedId = id;
         res: any = None;
         try {
@@ -152,12 +1621,303 @@ def:pub NetworkPage(
         selected = res.reports[0] if res is not None and res.reports and len(res.reports) > 0 else None;
     }
 
-    def recenter(key: str, name: str) {
-        centerKey = key;
-        centerName = name;
+    def select_node(id: str) {
+        sess = dragSession.current;
+        if sess["suppressClick"] {
+            sess["suppressClick"] = False;
+            return;
+        }
+        found_key: str = "";
+        found_name: str = "";
+        found_id: str = "";
+        found_kind: str = "";
+        found_sub: str = "";
+        found_exp: bool = False;
+        matched: bool = False;
+        for n in nodes {
+            if n.id == id or n.key == id {
+                found_key = n.key;
+                found_name = n.name;
+                found_id = n.id;
+                found_kind = n.kind;
+                found_sub = n.sub;
+                found_exp = n.expandable;
+                matched = True;
+            }
+        }
+        if not matched {
+            open_dossier(id);
+            return;
+        }
+        # Leaves open the dossier; expandable nodes accumulate into the graph.
+        if (not found_exp) or is_leaf_kind(found_kind) {
+            if found_kind == "lens" and found_sub == "root" {
+                set_focus("root", "Ann Arbor");
+                return;
+            }
+            open_dossier(found_id);
+            return;
+        }
+        if key_in_expanded(found_key) {
+            set_focus(found_key, found_name);
+            return;
+        }
+        drill_to(found_key, found_name);
+    }
+
+    def close_dossier {
+        selected = None;
+        selectedId = "";
+    }
+
+    def set_focus(key: str, name: str) {
+        focusKeyRef.current = key;
+        cut: int = -1;
+        i: int = 0;
+        for step in trail {
+            if str(step["key"]) == key {
+                cut = i;
+            }
+            i += 1;
+        }
+        if cut >= 0 {
+            trail = trail[: cut + 1];
+        } elif key != "root" {
+            trail = trail + [{"key": key, "name": name}];
+        } else {
+            trail = [{"key": "root", "name": "Ann Arbor"}];
+        }
+        focusKey = key;
+        focusName = name;
+        selected = None;
+        selectedId = "";
         results = [];
         query = "";
     }
+
+    def drill_to(key: str, name: str) {
+        set_focus(key, name);
+        if key != "root" and not key_in_expanded(key) {
+            expand_into(key);
+        }
+    }
+
+    def go_trail(index: int) {
+        if index < 0 or index >= len(trail) {
+            return;
+        }
+        step = trail[index];
+        sk: str = str(step["key"]);
+        sn: str = str(step["name"]);
+        if sk == "root" or sk == "all" {
+            if activeTab != "all" {
+                switch_tab("all", "All");
+            } else {
+                set_focus("root", "Ann Arbor");
+                trail = [{"key": "root", "name": "All"}];
+            }
+            return;
+        }
+        if is_lens_key(sk) and activeTab != sk {
+            switch_tab(sk, sn);
+            return;
+        }
+        # Keep the graph; only move the highlight.
+        focusKeyRef.current = sk;
+        focusKey = sk;
+        focusName = sn;
+        selected = None;
+        selectedId = "";
+    }
+
+    def go_root {
+        focusKeyRef.current = "root";
+        trail = [{"key": "root", "name": "All"}];
+        focusKey = "root";
+        focusName = "Ann Arbor";
+        activeTab = "all";
+        selected = None;
+        selectedId = "";
+        results = [];
+        query = "";
+        reset_camera();
+        load_overview();
+    }
+
+    # Capture id outside the SVG loop so Jac/JS doesn't share one closure.
+    def bind_node_click(nid: str) -> Callable[[MouseEvent], None] {
+        captured: str = nid;
+        return lambda (e: MouseEvent) {
+            e.stopPropagation();
+            select_node(captured);
+        };
+    }
+
+    def bind_node_pointer_down(nid: str) -> Callable[[MouseEvent], None] {
+        captured: str = nid;
+        return lambda (e: MouseEvent) {
+            e.stopPropagation();
+            if e.button != 0 {
+                return;
+            }
+            nd = nodeDrag.current;
+            nd["active"] = True;
+            nd["id"] = captured;
+            nd["didDrag"] = False;
+            nd["startX"] = float(e.clientX);
+            nd["startY"] = float(e.clientY);
+            # Don't pin / restart force until the pointer actually moves —
+            # otherwise a normal click yanks the whole graph.
+
+            def on_win_move(ev: any) {
+                cur = nodeDrag.current;
+                if not cur["active"] {
+                    return;
+                }
+                move_id: str = str(cur["id"]) if cur["id"] else "";
+                sx_any: any = cur["startX"];
+                sy_any: any = cur["startY"];
+                dx: float = float(ev.clientX) - float(sx_any if sx_any is not None else 0.0);
+                dy: float = float(ev.clientY) - float(sy_any if sy_any is not None else 0.0);
+                if not cur["didDrag"] {
+                    if abs(dx) < FORCE_DRAG_THRESHOLD and abs(dy) < FORCE_DRAG_THRESHOLD {
+                        return;
+                    }
+                    cur["didDrag"] = True;
+                    draggingNode = True;
+                    move_pt0 = client_to_graph(float(ev.clientX), float(ev.clientY));
+                    live0: any = simById.current;
+                    if live0 and move_id {
+                        try {
+                            node0: any = live0[move_id];
+                            if node0 {
+                                node0["fx"] = move_pt0[0];
+                                node0["fy"] = move_pt0[1];
+                            }
+                        } except Exception {
+                        }
+                    }
+                    sim0: any = simRef.current;
+                    if sim0 {
+                        try {
+                            sim0.alphaTarget(FORCE_DRAG_ALPHA).restart();
+                        } except Exception {
+                        }
+                    }
+                }
+                move_pt = client_to_graph(float(ev.clientX), float(ev.clientY));
+                live: any = simById.current;
+                if live and move_id {
+                    try {
+                        node_d: any = live[move_id];
+                        if node_d {
+                            node_d["fx"] = move_pt[0];
+                            node_d["fy"] = move_pt[1];
+                        }
+                    } except Exception {
+                    }
+                }
+                schedule_layout_tick();
+            }
+
+            def on_win_up(ev: any) {
+                window.removeEventListener("pointermove", on_win_move);
+                window.removeEventListener("pointerup", on_win_up);
+                window.removeEventListener("pointercancel", on_win_up);
+                end_node_drag();
+            }
+
+            window.addEventListener("pointermove", on_win_move);
+            window.addEventListener("pointerup", on_win_up);
+            window.addEventListener("pointercancel", on_win_up);
+        };
+    }
+
+    def bind_node_dblclick(nkey: str, nname: str) -> Callable[[MouseEvent], None] {
+        ck: str = nkey;
+        cn: str = nname;
+        return lambda (e: MouseEvent) {
+            e.stopPropagation();
+            sess = dragSession.current;
+            if not sess["didPan"] {
+                drill_to(ck, cn);
+            }
+        };
+    }
+
+    def bind_node_enter(nid: str) -> Callable[[MouseEvent], None] {
+        captured: str = nid;
+        return lambda (e: MouseEvent) { hoverId = captured; };
+    }
+
+    def bind_node_leave -> Callable[[MouseEvent], None] {
+        return lambda (e: MouseEvent) { hoverId = ""; };
+    }
+
+    def bind_trail_click(idx: int) -> Callable[[MouseEvent], None] {
+        captured: int = idx;
+        return lambda (e: MouseEvent) { go_trail(captured); };
+    }
+
+    def recenter(key: str, name: str) {
+        drill_to(key, name);
+    }
+
+    def bind_lens_starter(key: str, name: str) -> Callable[[MouseEvent], None] {
+        ck: str = key;
+        cn: str = name;
+        return lambda (e: MouseEvent) {
+            switch_tab(ck, cn);
+        };
+    }
+
+    def bind_search_pick(g: GNode) -> Callable[[MouseEvent], None] {
+        captured: GNode = g;
+        return lambda (e: MouseEvent) { pick_search(captured); };
+    }
+
+    def pick_search(r: GNode) {
+        results = [];
+        query = "";
+        if r.expandable and not is_leaf_kind(r.kind) {
+            if key_in_expanded(r.key) {
+                set_focus(r.key, r.name);
+            } else {
+                drill_to(r.key, r.name);
+            }
+        } else {
+            open_dossier(r.id);
+        }
+    }
+
+    def open_from_dossier(id: str) {
+        # Prefer drilling when the linked node is on-screen and expandable.
+        for n in nodes {
+            if n.id == id or n.key == id {
+                select_node(n.id);
+                return;
+            }
+        }
+        open_dossier(id);
+    }
+
+    def set_day_filter(iso: str) {
+        nxt = {** filters};
+        nxt["date"] = iso;
+        onFilters(nxt);
+    }
+
+    def on_day_select(v: str) {
+        if not v or v == "any" {
+            set_day_filter("");
+        } else {
+            set_day_filter(v);
+        }
+    }
+
+    dateChips: list[dict] = future_date_chips(14);
+    selectedDate: str = filters["date"] or "";
+    dayValue: str = selectedDate if selectedDate else "any";
 
     pos: dict[str, GNode] = {};
     for n in nodes {
@@ -169,6 +1929,7 @@ def:pub NetworkPage(
         <div className="relative flex flex-1 flex-col lg:flex-row">
             {#* ---------------- graph canvas ---------------- *#}
             <div
+                ref={canvasRef}
                 className="relative min-h-[70svh] flex-1 overflow-hidden paper-grain lg:min-h-[calc(100svh-230px)]"
             >
                 {loading
@@ -192,7 +1953,7 @@ def:pub NetworkPage(
                         <Button
                             variant="outline"
                             size="sm"
-                            onClick={lambda (e: MouseEvent) { load_graph(); }}
+                            onClick={lambda (e: MouseEvent) { load_root(); }}
                         >
                             {"Retry"}
                         </Button>
@@ -225,15 +1986,7 @@ def:pub NetworkPage(
                                 className="mt-4"
                                 size="sm"
                                 onClick={lambda (e: MouseEvent) { onFilters(
-                                    {
-                                        "categories": [],
-                                        "kinds": [],
-                                        "price": "any",
-                                        "time": "week",
-                                        "distance": 0.0,
-                                        "reply": "",
-                                        "query": ""
-                                    }
+                                    default_filters()
                                 ); }}
                             >
                                 {"Clear filters"}
@@ -241,97 +1994,139 @@ def:pub NetworkPage(
                         </div>
                     </div>}
                 <svg
+                    ref={svgRef}
                     viewBox="0 0 1200 800"
                     preserveAspectRatio="xMidYMid slice"
-                    className={"absolute inset-0 size-full transition-opacity duration-500 "
-                        + ("opacity-50" if loading else "opacity-100")}
+                    className={"absolute inset-0 size-full touch-none select-none transition-opacity duration-500 "
+                        + ("opacity-50" if loading else "opacity-100 ")
+                        + (
+                            "cursor-grabbing"
+                                if dragging or draggingNode
+                                else "cursor-grab"
+                        )}
+                    onPointerDown={on_graph_pointer_down}
+                    onPointerMove={on_graph_pointer_move}
+                    onPointerUp={on_graph_pointer_up}
+                    onPointerLeave={on_graph_pointer_up}
+                    onPointerCancel={on_graph_pointer_up}
                 >
-                    {for e in edges {
-                        if e.source in pos and e.target in pos {
-                            <line
-                                key={e.source + e.target}
-                                x1={pos[e.source].x}
-                                y1={pos[e.source].y}
-                                x2={pos[e.target].x}
-                                y2={pos[e.target].y}
-                                stroke={(
-                                    ("#fafaf9" if dark else "#1c1917")
-                                        if focus
-                                            and (e.source == focus or e.target == focus)
-                                        else ("#78716c" if dark else "#a8a29e")
-                                )}
-                                strokeOpacity={(
-                                    0.9
-                                        if focus
-                                            and (e.source == focus or e.target == focus)
-                                        else 0.28
-                                )}
-                                strokeWidth={(
-                                    1.6
-                                        if focus
-                                            and (e.source == focus or e.target == focus)
-                                        else 0.9
-                                )}
-                            />
-                        }
-                    }}
-                    {for n in nodes {
-                        <g
-                            key={n.id}
-                            transform={f"translate({n.x},{n.y})"}
-                            className="cursor-pointer"
-                            onClick={lambda (e: MouseEvent) { open_dossier(n.id); }}
-                            onDoubleClick={lambda (e: MouseEvent) { recenter(
-                                n.key, n.name
-                            ); }}
-                            onMouseEnter={lambda (e: MouseEvent) { hoverId = n.id; }}
-                            onMouseLeave={lambda (e: MouseEvent) { hoverId = ""; }}
-                        >
-                            {if n.depth == 0 {
-                                <circle
-                                    r={30}
-                                    fill="none"
-                                    stroke={kind_color(n.kind)}
-                                    strokeWidth={1.5}
-                                    strokeDasharray="3 4"
+                    <g
+                        transform={f"translate({panX},{panY}) scale({zoom})"}
+                        data-tick={str(layoutTick)}
+                    >
+                        {for e in edges {
+                            if e.source in pos and e.target in pos {
+                                a = live_xy(pos[e.source]);
+                                b = live_xy(pos[e.target]);
+                                eop = edge_dim(e.source, e.target);
+                                <line
+                                    key={e.source + e.target}
+                                    x1={a[0]}
+                                    y1={a[1]}
+                                    x2={b[0]}
+                                    y2={b[1]}
+                                    stroke={(
+                                        ("#fafaf9" if dark else "#1c1917")
+                                            if eop > 0.5
+                                            else ("#78716c" if dark else "#a8a29e")
+                                    )}
+                                    strokeOpacity={eop}
+                                    strokeWidth={(
+                                        (1.6 if eop > 0.5 else 0.85)
+                                        * glyph_scale()
+                                    )}
                                 />
-                            }}
-                            <circle
-                                r={(
-                                    18 if n.depth == 0 else (11 if n.depth == 1 else 7)
-                                )}
-                                fill={kind_color(n.kind)}
-                                fillOpacity={(1.0 if n.depth < 2 else 0.78)}
-                                stroke={(
-                                    ("#fafaf9" if dark else "#1c1917")
-                                    if n.id == selectedId
-                                    else ("#1c1917" if dark else "#ffffff")
-                                )}
-                                strokeWidth={(3 if n.id == selectedId else 2)}
-                            />
-                            <text
-                                y={(
-                                    40 if n.depth == 0 else (26 if n.depth == 1 else 20)
-                                )}
-                                textAnchor="middle"
-                                fontFamily="Geist Variable, system-ui, sans-serif"
-                                fontWeight={(600 if n.depth == 0 else 500)}
-                                fontSize={(
-                                    18 if n.depth == 0 else (13 if n.depth == 1 else 11)
-                                )}
-                                fill={(
-                                    ("#fafaf9" if dark else "#1c1917")
-                                    if n.depth < 2
-                                    else ("#a8a29e" if dark else "#78716c")
-                                )}
-                                stroke={("#1c1917" if dark else "#ffffff")}
-                                strokeWidth={4}
-                                paintOrder="stroke"
+                            }
+                        }}
+                        {for n in nodes {
+                            xy = live_xy(n);
+                            nop = node_dim(n);
+                            is_focus = n.key == focusKey or n.id == selectedId;
+                            gs = glyph_scale();
+                            <g
+                                key={n.id}
+                                data-node-id={n.id}
+                                transform={f"translate({xy[0]},{xy[1]})"}
+                                className="cursor-pointer"
+                                opacity={nop}
+                                onPointerDown={bind_node_pointer_down(n.id)}
+                                onClick={bind_node_click(n.id)}
+                                onDoubleClick={bind_node_dblclick(n.key, n.name)}
+                                onMouseEnter={bind_node_enter(n.id)}
+                                onMouseLeave={bind_node_leave()}
                             >
-                                {(n.name if len(n.name) < 30 else n.name[:28] + "...")}
-                            </text>
-                        </g>
-                    }}
+                                {if is_focus {
+                                    <circle
+                                        r={draw_radius(n.depth, n.kind) + 10.0 * gs}
+                                        fill="none"
+                                        stroke={(
+                                            "#a8a29e"
+                                                if n.kind == "lens"
+                                                else kind_color(n.kind)
+                                        )}
+                                        strokeWidth={1.5 * gs}
+                                        strokeDasharray="3 4"
+                                    />
+                                }}
+                                <circle
+                                    r={draw_radius(n.depth, n.kind)}
+                                    fill={kind_color(n.kind)}
+                                    fillOpacity={1.0}
+                                    stroke={(
+                                        "#292524"
+                                            if n.kind == "lens"
+                                            else (
+                                                ("#fafaf9" if dark else "#1c1917")
+                                                if is_focus
+                                                else ("#1c1917" if dark else "#ffffff")
+                                            )
+                                    )}
+                                    strokeWidth={(
+                                        (3.0 if is_focus else 2.0) * gs
+                                    )}
+                                />
+                                <text
+                                    y={(
+                                        (
+                                            40.0
+                                                if is_focus
+                                                else (
+                                                    26.0 if n.depth <= 1 else 20.0
+                                                )
+                                        )
+                                        * gs
+                                    )}
+                                    textAnchor="middle"
+                                    fontFamily="Geist Variable, system-ui, sans-serif"
+                                    fontWeight={(600 if is_focus else 500)}
+                                    fontSize={(
+                                        (
+                                            16.0
+                                                if is_focus
+                                                else (
+                                                    13.0 if n.depth <= 1 else 11.0
+                                                )
+                                        )
+                                        * gs
+                                    )}
+                                    fill={(
+                                        ("#fafaf9" if dark else "#1c1917")
+                                        if nop > 0.4
+                                        else ("#a8a29e" if dark else "#78716c")
+                                    )}
+                                    stroke={("#1c1917" if dark else "#ffffff")}
+                                    strokeWidth={4.0 * gs}
+                                    paintOrder="stroke"
+                                >
+                                    {(
+                                        n.name
+                                        if len(n.name) < 28
+                                        else n.name[:26] + "..."
+                                    )}
+                                </text>
+                            </g>
+                        }}
+                    </g>
                 </svg>
                 {#* editorial overlay, like a front page headline *#}
                 <div
@@ -341,7 +2136,7 @@ def:pub NetworkPage(
                         {"Explore Ann Arbor"}
                     </h2>
                     <p className="text-sm text-muted-foreground">
-                        {"Events, clubs, closures and council items, connected. Pick a thread to see what's tied to it."}
+                        {"All shows every branch. Places, Topics, Hosts, and City isolate one. Pinch in to spread nodes apart · drag to pan."}
                     </p>
                     <div className="pointer-events-auto flex flex-col gap-2">
                         <div className="relative max-w-md">
@@ -366,15 +2161,15 @@ def:pub NetworkPage(
                                     role="status"
                                 >
                                     <p className="text-sm">
-                                        {"No matches for “" + query.strip() + "”. Try a category, club or place:"}
+                                        {"No matches for “" + query.strip() + "”. Browse by place, topic, host or city instead:"}
                                     </p>
                                     <div className="flex flex-wrap gap-1.5">
-                                        {for s in STARTERS[:4] {
+                                        {for s in LENS_STARTERS[1:] {
                                             <button
                                                 key={"none-" + s["key"]}
                                                 type="button"
-                                                onClick={lambda (e: MouseEvent) { recenter(s["key"], s["name"]); }}
-                                                className="rounded-full border bg-background pt-1 pb-1 pl-3 pr-3 text-xs font-medium capitalize text-muted-foreground hover:text-foreground"
+                                                onClick={bind_lens_starter(str(s["key"]), str(s["name"]))}
+                                                className="rounded-full border bg-background pt-1 pb-1 pl-3 pr-3 text-xs font-medium text-muted-foreground hover:text-foreground"
                                             >
                                                 {s["name"]}
                                             </button>
@@ -389,9 +2184,7 @@ def:pub NetworkPage(
                                         <button
                                             key={r.id}
                                             type="button"
-                                            onClick={lambda (e: MouseEvent) { recenter(
-                                                r.key, r.name
-                                            ); }}
+                                            onClick={bind_search_pick(r)}
                                             className="flex w-full items-center gap-3 border-b pt-2 pb-2 pl-3 pr-3 text-left last:border-b-0 hover:bg-muted"
                                         >
                                             <span
@@ -417,17 +2210,15 @@ def:pub NetworkPage(
                                 </div>}
                         </div>
                         <div className="flex flex-wrap gap-1.5">
-                            {for s in STARTERS {
+                            {for s in LENS_STARTERS {
                                 <button
                                     key={s["key"]}
                                     type="button"
-                                    onClick={lambda (e: MouseEvent) { recenter(
-                                        s["key"], s["name"]
-                                    ); }}
-                                    className={"rounded-full border pt-1 pb-1 pl-3 pr-3 text-xs font-medium capitalize transition-colors "
+                                    onClick={bind_lens_starter(str(s["key"]), str(s["name"]))}
+                                    className={"rounded-full border pt-1 pb-1 pl-3 pr-3 text-xs font-medium transition-colors "
                                         + (
                                             "border-foreground bg-foreground text-background"
-                                                if centerKey == s["key"]
+                                                if activeTab == s["key"]
                                                 else "bg-card text-muted-foreground hover:text-foreground"
                                         )}
                                 >
@@ -435,7 +2226,64 @@ def:pub NetworkPage(
                                 </button>
                             }}
                         </div>
+                        <div className="mt-2 flex items-center gap-2">
+                            <span className="kicker shrink-0 text-muted-foreground">
+                                {"Day"}
+                            </span>
+                            <Select
+                                value={dayValue}
+                                onValueChange={lambda (v: str) { on_day_select(v); }}
+                            >
+                                <SelectTrigger
+                                    className="h-8 w-[9.5rem] bg-card text-xs"
+                                    aria-label="Filter by day"
+                                    size="sm"
+                                >
+                                    <SelectValue placeholder="Any day"/>
+                                </SelectTrigger>
+                                <SelectContent position="popper" align="start">
+                                    <SelectItem value="any">{"Any day"}</SelectItem>
+                                    {for chip in dateChips {
+                                        <SelectItem
+                                            key={chip["iso"]}
+                                            value={str(chip["iso"])}
+                                        >
+                                            {str(chip["label"])}
+                                        </SelectItem>
+                                    }}
+                                </SelectContent>
+                            </Select>
+                        </div>
                     </div>
+                </div>
+                {#* zoom controls *#}
+                <div
+                    className="absolute bottom-4 right-4 z-10 flex flex-col overflow-hidden rounded-lg border bg-card/95 shadow-sm backdrop-blur"
+                >
+                    <button
+                        type="button"
+                        aria-label="Zoom in"
+                        onClick={lambda (e: MouseEvent) { zoom_by(1.2); }}
+                        className="px-3 py-2 text-sm font-semibold text-foreground hover:bg-muted"
+                    >
+                        {"+"}
+                    </button>
+                    <button
+                        type="button"
+                        aria-label="Reset zoom"
+                        onClick={lambda (e: MouseEvent) { reset_camera(); }}
+                        className="border-t border-b px-3 py-1.5 text-[10px] font-medium tabular-nums text-muted-foreground hover:bg-muted"
+                    >
+                        {f"{zoom * 100.0:.0f}%"}
+                    </button>
+                    <button
+                        type="button"
+                        aria-label="Zoom out"
+                        onClick={lambda (e: MouseEvent) { zoom_by(0.83); }}
+                        className="px-3 py-2 text-sm font-semibold text-foreground hover:bg-muted"
+                    >
+                        {"−"}
+                    </button>
                 </div>
                 {#* legend + stats, bottom-left *#}
                 <div
@@ -457,45 +2305,86 @@ def:pub NetworkPage(
                         {f"{len(nodes)} nodes · {len(edges)} ties"}
                     </span>
                 </div>
+                {#* -------- dossier overlay (click a bubble) -------- *#}
+                {selected is not None
+                    and <DossierPanel
+                        dossier={selected}
+                        onClose={close_dossier}
+                        onOpenNode={open_from_dossier}
+                        onCenter={recenter}
+                    />}
             </div>
-            {#* ---------------- side column: hops, filters, dossier ---------------- *#}
+            {#* ---------------- side column: path, filters ---------------- *#}
             <aside
                 className="relative z-20 flex w-full flex-col gap-5 border-t bg-background pt-6 pb-6 pl-6 pr-6 lg:w-[360px] lg:border-l lg:border-t-0"
             >
                 <div className="flex flex-col gap-3">
                     <div className="flex items-baseline justify-between">
                         <span className="kicker text-muted-foreground">
-                            {"Center of the walk"}
+                            {"You are here"}
                         </span>
-                        <span className="kicker text-primary">
-                            {kind_label(pos[nodes[0].id].kind)
-                                if len(nodes) > 0
-                                else ""}
-                        </span>
+                        {focusKey != "root"
+                            and <button
+                                type="button"
+                                onClick={lambda (e: MouseEvent) { go_root(); }}
+                                className="kicker inline-flex items-center gap-1 text-primary hover:underline"
+                            >
+                                <HugeiconsIcon
+                                    icon={ArrowLeft01Icon}
+                                    strokeWidth={2}
+                                    className="size-3.5"
+                                />
+                                {"Root"}
+                            </button>}
                     </div>
-                    <h3
-                        className="font-display text-2xl font-bold capitalize leading-tight"
-                    >
-                        {centerName}
+                    <h3 className="font-display text-2xl font-bold leading-tight">
+                        {focusName}
                     </h3>
-                    <div className="flex items-center justify-between text-xs">
-                        <span className="kicker text-muted-foreground">
-                            {"How far out"}
-                        </span>
-                        <span className="kicker tabular-nums">
-                            {str(hops) + (" hop" if hops == 1 else " hops")}
-                        </span>
-                    </div>
-                    <Slider
-                        min={1}
-                        max={3}
-                        step={1}
-                        value={[hops]}
-                        onValueChange={lambda (v: list[float]) { hops = int(v[0]); }}
-                    />
+                    <nav
+                        className="flex flex-wrap items-center gap-1 text-xs"
+                        aria-label="Browse path"
+                    >
+                        {for (i, step) in enumerate(trail) {
+                            <span key={str(step["key"]) + str(i)} className="flex items-center gap-1">
+                                {i > 0 and <span className="text-muted-foreground">{"/"}</span>}
+                                <button
+                                    type="button"
+                                    onClick={bind_trail_click(i)}
+                                    className={(
+                                        "rounded px-1 py-0.5 font-medium transition-colors "
+                                        + (
+                                            "text-foreground"
+                                                if i == len(trail) - 1
+                                                else "text-muted-foreground hover:text-foreground hover:bg-muted"
+                                        )
+                                    )}
+                                >
+                                    {str(step["name"])}
+                                </button>
+                            </span>
+                        }}
+                    </nav>
                     <p className="text-xs text-muted-foreground">
-                        {"1 = direct ties. 2 = friends of friends. Double-click any bubble to re-center."}
+                        {"Click a hub to dig in. Events open the dossier. Pinch/scroll to spread clusters · drag empty space to pan · yank a node to bounce."}
                     </p>
+                    <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        disabled={syncing}
+                        onClick={lambda (e: MouseEvent) { run_online_sync(True); }}
+                        className="mt-1 w-full"
+                    >
+                        {(
+                            "Syncing calendars…"
+                            if syncing
+                            else "Sync live events"
+                        )}
+                    </Button>
+                    {syncMsg
+                        and <p className="text-[11px] leading-snug text-muted-foreground">
+                            {syncMsg}
+                        </p>}
                 </div>
                 <div className="border-t pt-4">
                     <button
@@ -512,135 +2401,18 @@ def:pub NetworkPage(
                         </div>}
                 </div>
                 <div className="border-t pt-4">
-                    {if selected is None {
-                        <div className="flex flex-col gap-1">
-                            <span className="kicker text-muted-foreground">
-                                {"The dossier"}
-                            </span>
-                            <p className="text-sm text-muted-foreground">
-                                {"Click any bubble to read its file: when, where, who, and where the fact came from."}
-                            </p>
-                        </div>
-                        skip;
-                    }}
-                    {selected
-                        and <div
-                            className="flex flex-col gap-3 animate-in fade-in slide-in-from-bottom-2 duration-300"
-                        >
-                            <div className="flex items-start justify-between gap-3">
-                                <div className="flex flex-col gap-1">
-                                    <span
-                                        className="kicker"
-                                        style={{"color": kind_color(selected.kind)}}
-                                    >
-                                        {kind_label(selected.kind)}
-                                    </span>
-                                    <h3
-                                        className="font-display text-xl font-bold leading-tight"
-                                    >
-                                        {selected.name}
-                                    </h3>
-                                </div>
-                                <button
-                                    type="button"
-                                    onClick={lambda (e: MouseEvent) {
-                                        selected = None;
-                                        selectedId = "";
-                                    }}
-                                    className="text-muted-foreground hover:text-foreground"
-                                >
-                                    <HugeiconsIcon
-                                        icon={Cancel01Icon}
-                                        strokeWidth={2}
-                                        className="size-4"
-                                    />
-                                </button>
-                            </div>
-                            {selected.desc
-                                and <p className="text-sm leading-relaxed">
-                                    {selected.desc}
-                                </p>}
-                            <dl className="grid grid-cols-[88px_1fr] gap-y-1.5 text-sm">
-                                {selected.when
-                                    and <dt
-                                        className="kicker pt-0.5 text-muted-foreground"
-                                    >
-                                        {"When"}
-                                    </dt>}{selected.when and <dd>{selected.when}</dd>}{(
-                                    selected.venue or selected.address
-                                )
-                                    and <dt
-                                        className="kicker pt-0.5 text-muted-foreground"
-                                    >
-                                        {"Where"}
-                                    </dt>}{(selected.venue or selected.address)
-                                    and <dd>
-                                        {selected.venue
-                                            + (
-                                                " · " + selected.address
-                                                    if selected.address
-                                                    else ""
-                                            )}
-                                    </dd>}{selected.organizer
-                                    and <dt
-                                        className="kicker pt-0.5 text-muted-foreground"
-                                    >
-                                        {"Who"}
-                                    </dt>}{selected.organizer
-                                    and <dd>{selected.organizer}</dd>}{selected.kind
-                                    == "event"
-                                    and <dt
-                                        className="kicker pt-0.5 text-muted-foreground"
-                                    >
-                                        {"Price"}
-                                    </dt>}{selected.kind == "event"
-                                    and <dd>
-                                        {(
-                                            "Free"
-                                                if selected.price == 0.0
-                                                else f"${selected.price:.0f}"
-                                        )}
-                                    </dd>}
-                            </dl>
-                            {len(selected.categories) > 0
-                                and <div className="flex flex-wrap gap-1">
-                                    {for c in (
-                                        selected.categories if selected else []
-                                    ) {
-                                        <span
-                                            key={c}
-                                            className="kicker border pt-0.5 pb-0.5 pl-1.5 pr-1.5 text-muted-foreground"
-                                        >
-                                            {c}
-                                        </span>
-                                    }}
-                                </div>}
-                            <div className="flex flex-wrap gap-2">
-                                <Button
-                                    size="sm"
-                                    variant="outline"
-                                    onClick={lambda (e: MouseEvent) { recenter(
-                                        selected.key, selected.name
-                                    ); }}
-                                >
-                                    {"Center here"}
-                                </Button>
-                                {selected.source_url
-                                    and <a
-                                        href={selected.source_url}
-                                        target="_blank"
-                                        rel="noreferrer"
-                                        className="kicker inline-flex items-center gap-1 text-primary hover:underline"
-                                    >
-                                        {"Source: " + selected.source_name}
-                                        <HugeiconsIcon
-                                            icon={ArrowUpRight01Icon}
-                                            strokeWidth={2}
-                                            className="size-3.5"
-                                        />
-                                    </a>}
-                            </div>
-                        </div>}
+                    <div className="flex flex-col gap-1">
+                        <span className="kicker text-muted-foreground">
+                            {"The dossier"}
+                        </span>
+                        <p className="text-sm text-muted-foreground">
+                            {(
+                                "Open — see the panel on the graph."
+                                    if selected is not None
+                                    else "Leaf nodes (events, closures, civic) open a file with when, where, who, and the source."
+                            )}
+                        </p>
+                    </div>
                 </div>
             </aside>
         </div>;

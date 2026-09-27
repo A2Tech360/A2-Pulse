@@ -25,7 +25,7 @@ import from .google_maps {
     place_search_pin,
     clear_search_pin
 }
-sv import from ..services.pulse { MapSnapshot, MapItem, maps_config }
+sv import from ..services.pulse { MapSnapshot, MapItem, maps_config, map_pin_overview, MapOverview }
 
 def:pub MapPage(
     filters: dict, onFilters: Callable[[dict], None], dark: bool = True
@@ -42,7 +42,8 @@ def:pub MapPage(
         mapRef: Ref[any] = Ref(None),
         overlaysRef: Ref[any] = Ref(None),
         infoRef: Ref[any] = Ref(None),
-        searchPinRef: Ref[any] = Ref(None);
+        searchPinRef: Ref[any] = Ref(None),
+        pinOverviews: dict = {};
 
     async def load_config -> None {
         mapDown = False;
@@ -75,6 +76,7 @@ def:pub MapPage(
             kinds=filters["kinds"] or [],
             price=filters["price"] or "any",
             time=filters["time"] or "week",
+            date=filters["date"] or "",
             distance=filters["distance"] or 0.0,
             clat=campus_lat(),
             clng=campus_lng(),
@@ -107,7 +109,28 @@ def:pub MapPage(
     }
 
     def clear_filters(e: MouseEvent) {
-        onFilters({"categories": [], "kinds": [], "price": "any", "time": "week", "distance": 0.0, "reply": "", "query": ""});
+        onFilters({"categories": [], "kinds": [], "price": "any", "time": "week", "date": "", "distance": 0.0, "reply": "", "query": ""});
+    }
+
+    async def ensure_overview(id: str) {
+        if id in pinOverviews {
+            return;
+        }
+        try {
+            ov: MapOverview = await map_pin_overview(id);
+            nxt: dict = {**pinOverviews};
+            nxt[id] = {"blurb": ov.blurb, "tip": ov.tip, "headline": ov.headline};
+            pinOverviews = nxt;
+        } except Exception {
+            nxt2: dict = {**pinOverviews};
+            nxt2[id] = {"blurb": "", "tip": "", "headline": ""};
+            pinOverviews = nxt2;
+        }
+    }
+
+    def select_pin(id: str) {
+        focusId = id;
+        ensure_overview(id);
     }
 
     can with [filters] entry {
@@ -137,7 +160,7 @@ def:pub MapPage(
         apply_map_theme(mapRef.current, dark, mapEl.current);
     }
 
-    can with (items, focusId, filters, mapsReady, dark) entry {
+    can with (items, focusId, filters, mapsReady, dark, pinOverviews) entry {
         m: any = mapRef.current;
         if not m or not mapsReady {
             return;
@@ -152,12 +175,13 @@ def:pub MapPage(
             focusId,
             dist,
             dark,
-            lambda (id: str) { focusId = id; }
+            lambda (id: str) { select_pin(id); },
+            pinOverviews
         );
     }
 
     def focus_item(it: MapItem) {
-        focusId = it.id;
+        select_pin(it.id);
         clear_search_pin(searchPinRef.current);
         searchPinRef.current = None;
         pan_to_item(mapRef.current, it.lat, it.lng);

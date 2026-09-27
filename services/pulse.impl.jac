@@ -1,7 +1,36 @@
 """Bodies for pulse.jac: seeding, filters, traversal and ranking."""
 
+import from services.event_dates { event_matches_date, parse_iso_date }
+
 glob KIND_TOGGLES: list[str] = ["event", "organizer", "alert", "civic"];
 glob MAX_NODES: int = 90;
+glob MAX_BROWSE_CHILDREN: int = 24;
+glob BROWSE_LENSES: list[dict] = [
+    {
+        "key": "lens-places",
+        "name": "Places",
+        "sub": "places",
+        "desc": "Neighborhoods and corridors — drill into buildings, then events."
+    },
+    {
+        "key": "lens-topics",
+        "name": "Topics",
+        "sub": "topics",
+        "desc": "Music, nightlife, comedy, food — pick a topic, then a venue."
+    },
+    {
+        "key": "lens-who",
+        "name": "Hosts",
+        "sub": "who",
+        "desc": "Clubs, venues and orgs — see what they're hosting."
+    },
+    {
+        "key": "lens-city",
+        "name": "City",
+        "sub": "city",
+        "desc": "Road closures, detours and council items."
+    }
+];
 
 impl _has_llm -> bool {
     return pulse_llm.llm_enabled();
@@ -11,10 +40,139 @@ impl _hub -> Hub {
     return _ensure_seed();
 }
 
+impl _migrate_seed_extras(hub: Hub) {
+    # Existing persisted graphs miss nightlife venues/categories added later.
+    have: dict[str, PulseNode] = {};
+    for existing in [hub -->][?:PulseNode] {
+        if existing.key {
+            have[existing.key] = existing;
+        }
+    }
+    n: PulseNode = PulseNode();
+    for c in CATEGORIES {
+        ckey = "cat-" + c;
+        if ckey in have {
+            continue;
+        }
+        n = Category(
+            key=ckey,
+            name=c,
+            kind="category",
+            desc="Everything in Ann Arbor tagged " + c + "."
+        );
+        hub ++> n;
+        have[ckey] = n;
+    }
+    for p in PLACES {
+        if p["key"] in have {
+            continue;
+        }
+        n = Place(
+            key=p["key"],
+            name=p["name"],
+            kind="place",
+            lat=p["lat"],
+            lng=p["lng"],
+            desc="A neighborhood or route waypoint."
+        );
+        hub ++> n;
+        have[p["key"]] = n;
+    }
+    for v in VENUES {
+        if v["key"] in have {
+            continue;
+        }
+        n = Venue(
+            key=v["key"],
+            name=v["name"],
+            kind="venue",
+            address=v["address"],
+            lat=v["lat"],
+            lng=v["lng"],
+            desc="Venue at " + str(v["address"]) + "."
+        );
+        hub ++> n;
+        have[v["key"]] = n;
+        pk = str(v["place"]);
+        if pk in have {
+            n +>:Near():+> have[pk];
+        }
+    }
+    for o in ORGANIZERS {
+        if o["key"] in have {
+            continue;
+        }
+        vk = str(o["venue"]);
+        if vk not in have {
+            continue;
+        }
+        ven = have[vk];
+        n = Organizer(
+            key=o["key"],
+            name=o["name"],
+            kind="organizer",
+            sub=o["org_type"],
+            lat=ven.lat,
+            lng=ven.lng,
+            address=ven.address,
+            desc=str(o["name"]) + " (" + str(o["org_type"]) + ")."
+        );
+        hub ++> n;
+        have[o["key"]] = n;
+        n +>:HostedAt():+> ven;
+    }
+    src_names: dict[str, str] = {};
+    src_urls: dict[str, str] = {};
+    for s in SOURCES {
+        src_names[s["key"]] = s["name"];
+        src_urls[s["key"]] = s["url"];
+    }
+    for e in EVENTS {
+        if e["key"] in have {
+            continue;
+        }
+        vk = str(e["venue"]);
+        ok = str(e["org"]);
+        sk = str(e["src"]);
+        if vk not in have or ok not in have or sk not in have {
+            continue;
+        }
+        ven = have[vk];
+        n = Event(
+            key=e["key"],
+            name=e["name"],
+            kind="event",
+            desc=e["desc"],
+            when=e["time"],
+            day=e["day"],
+            price=e["price"],
+            lat=ven.lat,
+            lng=ven.lng,
+            address=ven.address,
+            source_name=src_names[sk],
+            source_url=src_urls[sk],
+            sub=("free" if e["price"] == 0.0 else "paid")
+        );
+        hub ++> n;
+        have[e["key"]] = n;
+        n +>:HostedAt():+> ven;
+        n +>:OrganizedBy():+> have[ok];
+        for c in (e["cats"] as list[str]) {
+            ckey = "cat-" + c;
+            if ckey in have {
+                n +>:TaggedAs():+> have[ckey];
+            }
+        }
+        n +>:SourcedFrom():+> have[sk];
+    }
+}
+
 impl _ensure_seed -> Hub {
     hubs = [root -->][?:Hub];
     if len(hubs) > 0 {
-        return hubs[0];
+        hub = hubs[0];
+        _migrate_seed_extras(hub);
+        return hub;
     }
     hub = Hub();
     root ++> hub;
@@ -149,9 +307,16 @@ impl _passes(n: PulseNode, spec: FilterSpec, clat: float, clng: float) -> bool {
             }
             if not hit { return False; }
         }
-        today = datetime.now().weekday();
-        if spec.time == "today" and n.day != today { return False; }
-        if spec.time == "weekend" and n.day < 4 { return False; }
+        # A concrete calendar day overrides the coarse time bucket.
+        if spec.date {
+            if not _node_on_date(n, spec.date) {
+                return False;
+            }
+        } else {
+            today = datetime.now().weekday();
+            if spec.time == "today" and n.day != today { return False; }
+            if spec.time == "weekend" and n.day < 4 { return False; }
+        }
     }
     if n.kind == "event" {
         if spec.price == "free" and n.price > 0.0 { return False; }
@@ -159,6 +324,66 @@ impl _passes(n: PulseNode, spec: FilterSpec, clat: float, clng: float) -> bool {
     }
     if spec.distance > 0.0 and n.lat != 0.0 {
         if _miles(clat, clng, n.lat, n.lng) > spec.distance { return False; }
+    }
+    return True;
+}
+
+impl _node_on_date(n: PulseNode, date_iso: str) -> bool {
+    if not date_iso {
+        return True;
+    }
+    if parse_iso_date(date_iso) is None {
+        return True;
+    }
+    res: any = event_matches_date(n.when, n.day, date_iso);
+    matched: bool = bool(res[0]);
+    conf: str = str(res[1]);
+    if conf == "exact" {
+        return matched;
+    }
+    # Ambiguous when-text: ask the model when available, else weekday soft match.
+    if conf == "none" and _has_llm() and len((n.when or "").strip()) >= 4 {
+        try {
+            return bool(llm_event_on_date(n.when, n.name, date_iso));
+        } except Exception {
+        }
+    }
+    return matched;
+}
+
+impl _has_dated_event(host: PulseNode, spec: FilterSpec, clat: float, clng: float) -> bool {
+    # True if this venue/organizer/category connects to an event that passes date filters.
+    if host.kind == "venue" {
+        for e in [host <-:HostedAt:<-][?:Event] {
+            if _passes(e, spec, clat, clng) {
+                return True;
+            }
+        }
+        return False;
+    }
+    if host.kind == "organizer" {
+        for e in [host <-:OrganizedBy:<-][?:Event] {
+            if _passes(e, spec, clat, clng) {
+                return True;
+            }
+        }
+        return False;
+    }
+    if host.kind == "category" {
+        for e in [host <-:TaggedAs:<-][?:Event] {
+            if _passes(e, spec, clat, clng) {
+                return True;
+            }
+        }
+        return False;
+    }
+    if host.kind == "place" {
+        for v in [host <-:Near:<-][?:Venue] {
+            if _has_dated_event(v, spec, clat, clng) {
+                return True;
+            }
+        }
+        return False;
     }
     return True;
 }
@@ -178,7 +403,271 @@ impl _edge_label(a: PulseNode, b: PulseNode) -> str {
 }
 
 impl _gnode(n: PulseNode, depth: int) -> GNode {
-    return GNode(id=jid(n), key=n.key, name=n.name, kind=n.kind, sub=n.sub, depth=depth);
+    return GNode(
+        id=jid(n),
+        key=n.key,
+        name=n.name,
+        kind=n.kind,
+        sub=n.sub,
+        depth=depth,
+        expandable=_is_expandable(n.kind)
+    );
+}
+
+impl _is_expandable(kind: str) -> bool {
+    return kind not in ["event", "alert", "civic", "source"];
+}
+
+impl _radial_layout(nodes: list[GNode]) {
+    cx = 600.0;
+    cy = 400.0;
+    rings: list[float] = [0.0, 190.0, 310.0, 390.0];
+    by_depth: dict[int, list[GNode]] = {};
+    for g in nodes {
+        if g.depth not in by_depth {
+            by_depth[g.depth] = [];
+        }
+        by_depth[g.depth].append(g);
+    }
+    for (dep, group) in by_depth.items() {
+        cnt: float = float(max(len(group), 1));
+        rad: float = rings[min(dep, 3)];
+        offset: float = 0.4 * float(dep);
+        two_pi: float = 6.283185307;
+        i: int = 0;
+        for g in group {
+            if dep == 0 and len(group) == 1 {
+                g.x = cx;
+                g.y = cy;
+            } elif dep == 0 {
+                ang0: float = (two_pi * float(i)) / cnt - 1.2;
+                g.x = round(cx + 120.0 * math.cos(ang0), 1);
+                g.y = round(cy + 90.0 * math.sin(ang0), 1);
+            } else {
+                ang: float = offset + (two_pi * float(i)) / cnt;
+                wobble: float = 14.0 * math.sin(float(i) * 1.7) if dep > 1 else 0.0;
+                g.x = round(cx + (rad + wobble) * math.cos(ang) * 1.2, 1);
+                g.y = round(cy + (rad + wobble) * math.sin(ang) * 0.95, 1);
+            }
+            i += 1;
+        }
+    }
+}
+
+impl _browse_child_nodes(
+    focus_key: str, spec: FilterSpec, clat: float, clng: float
+) -> list[PulseNode] {
+    hub = _hub();
+    out: list[PulseNode] = [];
+    seen: list[str] = [];
+
+    if focus_key == "lens-places" {
+        for n in [hub -->][?:Place] {
+            if spec.date and not _has_dated_event(n, spec, clat, clng) {
+                continue;
+            }
+            k = n.key if n.key else jid(n);
+            if k not in seen {
+                seen.append(k);
+                out.append(n);
+            }
+        }
+        return out;
+    }
+    if focus_key == "lens-topics" {
+        for n in [hub -->][?:Category] {
+            if len(spec.categories) > 0 and n.name not in spec.categories {
+                continue;
+            }
+            if spec.date and not _has_dated_event(n, spec, clat, clng) {
+                continue;
+            }
+            k = n.key if n.key else jid(n);
+            if k not in seen {
+                seen.append(k);
+                out.append(n);
+            }
+        }
+        return out;
+    }
+    if focus_key == "lens-who" {
+        for n in [hub -->][?:Organizer] {
+            if len(out) >= MAX_BROWSE_CHILDREN {
+                break;
+            }
+            if spec.date and not _has_dated_event(n, spec, clat, clng) {
+                continue;
+            }
+            k = n.key if n.key else jid(n);
+            if k not in seen {
+                seen.append(k);
+                out.append(n);
+            }
+        }
+        return out;
+    }
+    if focus_key == "lens-city" {
+        for n in [hub -->][?:Alert] {
+            if len(out) >= MAX_BROWSE_CHILDREN {
+                break;
+            }
+            if not _passes(n, spec, clat, clng) {
+                continue;
+            }
+            k = n.key if n.key else jid(n);
+            if k not in seen {
+                seen.append(k);
+                out.append(n);
+            }
+        }
+        for n in [hub -->][?:CivicItem] {
+            if len(out) >= MAX_BROWSE_CHILDREN {
+                break;
+            }
+            if not _passes(n, spec, clat, clng) {
+                continue;
+            }
+            k = n.key if n.key else jid(n);
+            if k not in seen {
+                seen.append(k);
+                out.append(n);
+            }
+        }
+        return out;
+    }
+
+    focus = _find_key(focus_key);
+    if focus is None {
+        return out;
+    }
+
+    if focus.kind == "place" {
+        for v in [focus <-:Near:<-][?:Venue] {
+            if spec.date and not _has_dated_event(v, spec, clat, clng) {
+                continue;
+            }
+            k = v.key if v.key else jid(v);
+            if k not in seen {
+                seen.append(k);
+                out.append(v);
+            }
+        }
+        return out;
+    }
+    if focus.kind == "venue" {
+        for e in [focus <-:HostedAt:<-][?:Event] {
+            if len(out) >= MAX_BROWSE_CHILDREN {
+                break;
+            }
+            if not _passes(e, spec, clat, clng) {
+                continue;
+            }
+            k = e.key if e.key else jid(e);
+            if k not in seen {
+                seen.append(k);
+                out.append(e);
+            }
+        }
+        return out;
+    }
+    if focus.kind == "category" {
+        for e in [focus <-:TaggedAs:<-][?:Event] {
+            if not _passes(e, spec, clat, clng) {
+                continue;
+            }
+            ven = _venue_of(e);
+            if ven is not None {
+                k = ven.key if ven.key else jid(ven);
+                if k not in seen {
+                    seen.append(k);
+                    out.append(ven);
+                }
+            }
+        }
+        if len(out) == 0 {
+            for e in [focus <-:TaggedAs:<-][?:Event] {
+                if not _passes(e, spec, clat, clng) {
+                    continue;
+                }
+                k = e.key if e.key else jid(e);
+                if k not in seen {
+                    seen.append(k);
+                    out.append(e);
+                }
+            }
+            for a in [focus <-:TaggedAs:<-][?:Alert] {
+                if not _passes(a, spec, clat, clng) {
+                    continue;
+                }
+                k = a.key if a.key else jid(a);
+                if k not in seen {
+                    seen.append(k);
+                    out.append(a);
+                }
+            }
+            for c in [focus <-:TaggedAs:<-][?:CivicItem] {
+                if not _passes(c, spec, clat, clng) {
+                    continue;
+                }
+                k = c.key if c.key else jid(c);
+                if k not in seen {
+                    seen.append(k);
+                    out.append(c);
+                }
+            }
+        }
+        return out;
+    }
+    if focus.kind == "organizer" {
+        for e in [focus <-:OrganizedBy:<-][?:Event] {
+            if not _passes(e, spec, clat, clng) {
+                continue;
+            }
+            k = e.key if e.key else jid(e);
+            if k not in seen {
+                seen.append(k);
+                out.append(e);
+            }
+        }
+        for a in [focus <-:OrganizedBy:<-][?:Alert] {
+            if not _passes(a, spec, clat, clng) {
+                continue;
+            }
+            k = a.key if a.key else jid(a);
+            if k not in seen {
+                seen.append(k);
+                out.append(a);
+            }
+        }
+        for c in [focus <-:OrganizedBy:<-][?:CivicItem] {
+            if not _passes(c, spec, clat, clng) {
+                continue;
+            }
+            k = c.key if c.key else jid(c);
+            if k not in seen {
+                seen.append(k);
+                out.append(c);
+            }
+        }
+        return out;
+    }
+    if focus.kind in ["event", "alert", "civic"] {
+        nbrs = [focus -->][?:PulseNode] + [focus <--][?:PulseNode];
+        for nb in nbrs {
+            if nb.kind == "source" {
+                continue;
+            }
+            if nb.kind in ["event", "alert", "civic"] and not _passes(nb, spec, clat, clng) {
+                continue;
+            }
+            k = nb.key if nb.key else jid(nb);
+            if k not in seen {
+                seen.append(k);
+                out.append(nb);
+            }
+        }
+    }
+    return out;
 }
 
 impl _find_key(key: str) -> PulseNode | None {
@@ -240,7 +729,7 @@ impl _bus_action_for(n: PulseNode, reasons: list[str]) -> str {
 
 impl _heuristic_filters(text: str, prior: FilterSpec) -> FilterSpec {
     t = text.lower();
-    spec = FilterSpec(query=text, categories=list(prior.categories), kinds=list(prior.kinds), price=prior.price, time=prior.time, distance=prior.distance);
+    spec = FilterSpec(query=text, categories=list(prior.categories), kinds=list(prior.kinds), price=prior.price, time=prior.time, date=prior.date, distance=prior.distance);
     if "reset" in t or "start over" in t or "clear" in t {
         spec = FilterSpec(query=text);
     }
@@ -268,7 +757,14 @@ impl _heuristic_filters(text: str, prior: FilterSpec) -> FilterSpec {
     if "free" in t { spec.price = "free"; }
     elif "cheap" in t or "under $10" in t or "under 10" in t { spec.price = "under10"; }
     if "saturday" in t or "sunday" in t or "weekend" in t or "friday" in t { spec.time = "weekend"; }
-    elif "tonight" in t or "today" in t { spec.time = "today"; }
+    elif "tonight" in t or "today" in t {
+        spec.time = "today";
+        spec.date = datetime.now().date().isoformat();
+    }
+    elif "tomorrow" in t {
+        spec.date = (datetime.now().date() + timedelta(days=1)).isoformat();
+        spec.time = "week";
+    }
     elif "this week" in t { spec.time = "week"; }
     if "near campus" in t or "nearby" in t or "walk" in t or "near me" in t { spec.distance = 1.0; }
     new_kinds: list[str] = [];
@@ -311,7 +807,7 @@ impl EgoSnapshot.expand {
     if depth >= self.hops {
         return;
     }
-    spec = FilterSpec(categories=self.categories, kinds=self.kinds, price=self.price, time=self.time, distance=self.distance);
+    spec = FilterSpec(categories=self.categories, kinds=self.kinds, price=self.price, time=self.time, date=self.date, distance=self.distance);
     nbrs = [here -->][?:PulseNode] + [here <--][?:PulseNode];
     fresh: list[PulseNode] = [];
     for nb in nbrs {
@@ -366,6 +862,128 @@ impl EgoSnapshot.finish {
     report Snapshot(center=self.center_key, nodes=self.out_nodes, edges=self.out_edges);
 }
 
+# ---------------------------------------------------------------- NetworkBrowse
+impl NetworkBrowse.start {
+    _ensure_seed();
+    spec = FilterSpec(
+        categories=self.categories,
+        kinds=self.kinds,
+        price=self.price,
+        time=self.time,
+        date=self.date,
+        distance=self.distance
+    );
+    fk = self.focus_key if self.focus_key else "root";
+    nodes: list[GNode] = [];
+    edges: list[GEdge] = [];
+
+    if fk == "root" {
+        nodes.append(
+            GNode(
+                id="root",
+                key="root",
+                name="Ann Arbor",
+                kind="lens",
+                sub="root",
+                depth=0,
+                expandable=False
+            )
+        );
+        for lens in BROWSE_LENSES {
+            kid = str(lens["key"]);
+            nodes.append(
+                GNode(
+                    id=kid,
+                    key=kid,
+                    name=str(lens["name"]),
+                    kind="lens",
+                    sub=str(lens["sub"]),
+                    depth=1,
+                    expandable=True
+                )
+            );
+            edges.append(GEdge(source="root", target=kid, label="explore"));
+        }
+    } else {
+        focus_g: GNode | None = None;
+        for lens in BROWSE_LENSES {
+            if str(lens["key"]) == fk {
+                focus_g = GNode(
+                    id=fk,
+                    key=fk,
+                    name=str(lens["name"]),
+                    kind="lens",
+                    sub=str(lens["sub"]),
+                    depth=0,
+                    expandable=True
+                );
+            }
+        }
+        if focus_g is None {
+            pn = _find_key(fk);
+            if pn is not None {
+                focus_g = _gnode(pn, 0);
+            }
+        }
+        if focus_g is None {
+            nodes.append(
+                GNode(
+                    id="root",
+                    key="root",
+                    name="Ann Arbor",
+                    kind="lens",
+                    sub="root",
+                    depth=0,
+                    expandable=False
+                )
+            );
+            for lens in BROWSE_LENSES {
+                kid = str(lens["key"]);
+                nodes.append(
+                    GNode(
+                        id=kid,
+                        key=kid,
+                        name=str(lens["name"]),
+                        kind="lens",
+                        sub=str(lens["sub"]),
+                        depth=1,
+                        expandable=True
+                    )
+                );
+                edges.append(GEdge(source="root", target=kid, label="explore"));
+            }
+            fk = "root";
+        } else {
+            center_id = focus_g.id;
+            nodes.append(focus_g);
+            kids = _browse_child_nodes(fk, spec, self.clat, self.clng);
+            for ch in kids {
+                if len(nodes) >= MAX_NODES {
+                    break;
+                }
+                g = _gnode(ch, 1);
+                nodes.append(g);
+                edge_lbl = "in";
+                if focus_g.kind == "lens" {
+                    edge_lbl = "explore";
+                } elif focus_g.kind == "category" {
+                    edge_lbl = "hosts";
+                } elif focus_g.kind == "organizer" {
+                    edge_lbl = "puts on";
+                } elif focus_g.kind == "venue" {
+                    edge_lbl = "hosted at";
+                } elif focus_g.kind == "place" {
+                    edge_lbl = "in";
+                }
+                edges.append(GEdge(source=center_id, target=g.id, label=edge_lbl));
+            }
+        }
+    }
+
+    _radial_layout(nodes);
+    report Snapshot(center=fk, nodes=nodes, edges=edges);
+}
+
 # ---------------------------------------------------------------- MapSnapshot
 impl MapSnapshot.start {
     hub = _ensure_seed();
@@ -403,7 +1021,7 @@ impl MapSnapshot.pin {
         return;
     }
     on_route = here.key in self.route_keys;
-    spec = FilterSpec(categories=self.categories, kinds=self.kinds, price=self.price, time=self.time, distance=self.distance);
+    spec = FilterSpec(categories=self.categories, kinds=self.kinds, price=self.price, time=self.time, date=self.date, distance=self.distance);
     if on_route {
         # Always surface commute / home route impacts; still respect kind toggles.
         if len(self.kinds) > 0 and here.kind not in self.kinds {
@@ -435,13 +1053,23 @@ impl SearchArchive.start {
 impl SearchArchive.scan {
     q = self.query.lower().strip();
     for n in [here -->][?:PulseNode] {
-        if n.kind in ["source", "place"] { continue; }
+        if n.kind == "source" {
+            continue;
+        }
         hay = (n.name + " " + n.kind + " " + n.sub + " " + n.desc).lower();
         if q == "" or q in hay {
             self.found.append(_gnode(n, 0));
         }
     }
-    order: dict[str, int] = {"category": 0, "organizer": 1, "event": 2, "alert": 3, "civic": 4, "venue": 5};
+    order: dict[str, int] = {
+        "place": 0,
+        "category": 1,
+        "venue": 2,
+        "organizer": 3,
+        "event": 4,
+        "alert": 5,
+        "civic": 6
+    };
     self.found.sort(key=lambda (g: GNode) -> int { return order.get(g.kind, 9); });
     self.found = self.found[:14];
 }
@@ -699,6 +1327,10 @@ impl converse_query(text: str, prior: FilterSpec) -> FilterSpec {
             spec.kinds = [k for k in spec.kinds if k in KIND_TOGGLES];
             if spec.price not in ["any", "free", "under10"] { spec.price = "any"; }
             if spec.time not in ["today", "weekend", "week"] { spec.time = "week"; }
+            dval: any = spec.date;
+            if not isinstance(dval, str) {
+                spec.date = prior.date;
+            }
             spec.query = text;
             if not spec.reply { spec.reply = "Updated your view."; }
             return spec;
@@ -1215,4 +1847,439 @@ impl list_voices -> dict {
         }
     }
     return {"voices": PREMADE_VOICES, "source": "premade"};
+}
+
+def _escape_popup(s: str) -> str {
+    t = s.replace("&", "&amp;");
+    t = t.replace("<", "&lt;");
+    t = t.replace(">", "&gt;");
+    t = t.replace('"', "&quot;");
+    return t;
+}
+
+def _heuristic_map_overview(n: PulseNode) -> MapOverview {
+    tip = n.when if n.when else "";
+    if n.kind == "alert" and not tip {
+        tip = "Check before you leave.";
+    } elif n.kind == "event" and n.price == 0.0 {
+        tip = "Free — good drop-in.";
+    } elif n.kind == "event" and n.price > 0.0 {
+        tip = "Ticketed · about $" + str(int(n.price));
+    }
+    blurb = n.desc.strip() if n.desc else (
+        n.name + " is on the Ann Arbor pulse as a " + n.kind + "."
+    );
+    if len(blurb) > 220 {
+        blurb = blurb[:217] + "...";
+    }
+    return MapOverview(headline=n.name, blurb=blurb, tip=tip, ai=False);
+}
+
+impl map_pin_overview(node_id: str) -> MapOverview {
+    _ensure_seed();
+    n = _find_key(node_id);
+    if n is None {
+        return MapOverview(
+            headline="Unknown pin",
+            blurb="We could not find that marker in the archive.",
+            tip="",
+            ai=False
+        );
+    }
+    cats = ", ".join(_cats_of(n));
+    ven = _venue_of(n);
+    venue_name = ven.name if ven else "";
+    if _has_llm() {
+        try {
+            ov = llm_map_overview(
+                n.name, n.kind, n.when, venue_name, n.desc, cats
+            );
+            if not ov.headline {
+                ov.headline = n.name;
+            }
+            if not ov.blurb {
+                return _heuristic_map_overview(n);
+            }
+            ov.ai = True;
+            return ov;
+        } except Exception {
+            return _heuristic_map_overview(n);
+        }
+    }
+    return _heuristic_map_overview(n);
+}
+
+# ---------------------------------------------------------------- dossier images
+glob _IMG_UA: str = "A2Pulse/1.0 (Ann Arbor local graph; educational demo)";
+
+def _http_json(url: str, timeout: float = 8.0) -> dict {
+    req = Request(url, headers={"User-Agent": _IMG_UA, "Accept": "application/json"});
+    try {
+        resp: any = urlopen(req, timeout=timeout);
+        raw: bytes = resp.read();
+        resp.close();
+        parsed: any = json.loads(raw.decode("utf-8", "replace"));
+        if isinstance(parsed, dict) {
+            return parsed as dict;
+        }
+    } except Exception {
+    }
+    return {};
+}
+
+def _dedupe_images(imgs: list[DossierImage], limit: int = 4) -> list[DossierImage] {
+    seen: dict[str, bool] = {};
+    out: list[DossierImage] = [];
+    for im in imgs {
+        u = (im.url or "").strip();
+        if not u or u in seen {
+            continue;
+        }
+        if not (u.startswith("https://") or u.startswith("http://")) {
+            continue;
+        }
+        seen[u] = True;
+        out.append(im);
+        if len(out) >= limit {
+            break;
+        }
+    }
+    return out;
+}
+
+def _wiki_images(query: str, limit: int = 3) -> list[DossierImage] {
+    q = query.strip();
+    if not q {
+        return [];
+    }
+    url = "https://en.wikipedia.org/w/api.php?" + urlencode(
+        {
+            "action": "query",
+            "format": "json",
+            "generator": "search",
+            "gsrsearch": q,
+            "gsrlimit": str(limit + 2),
+            "prop": "pageimages|pageterms",
+            "piprop": "thumbnail",
+            "pithumbsize": "900",
+            "wbptterms": "description"
+        }
+    );
+    data = _http_json(url);
+    pages: any = {};
+    try {
+        pages = data["query"]["pages"];
+    } except Exception {
+        return [];
+    }
+    out: list[DossierImage] = [];
+    try {
+        for (pid, page) in pages.items() {
+            th: any = None;
+            try {
+                th = page["thumbnail"];
+            } except Exception {
+                continue;
+            }
+            src = "";
+            try {
+                src = str(th["source"] or "");
+            } except Exception {
+                continue;
+            }
+            if not src {
+                continue;
+            }
+            if "?" in src {
+                src = src.split("?", 1)[0];
+            }
+            title: str = q;
+            try {
+                title = str(page["title"] or q);
+            } except Exception {
+            }
+            # Drop fuzzy Wikipedia misses (query tokens must appear in the title).
+            tokens: list[str] = [];
+            for tok in q.replace(",", " ").split() {
+                tl = tok.lower().strip();
+                if len(tl) > 3 and tl not in ["ann", "arbor", "michigan", "with", "from", "club"] {
+                    tokens.append(tl);
+                }
+            }
+            title_l = title.lower();
+            if len(tokens) > 0 {
+                hit_tok = False;
+                for tl in tokens {
+                    if tl in title_l {
+                        hit_tok = True;
+                        break;
+                    }
+                }
+                if not hit_tok {
+                    continue;
+                }
+            }
+            out.append(
+                DossierImage(
+                    url=src,
+                    caption=title,
+                    credit="Wikipedia / Wikimedia Commons",
+                    source="wikipedia"
+                )
+            );
+            if len(out) >= limit {
+                break;
+            }
+        }
+    } except Exception {
+    }
+    return out;
+}
+
+def _openverse_images(query: str, limit: int = 3) -> list[DossierImage] {
+    q = query.strip();
+    if not q {
+        return [];
+    }
+    url = "https://api.openverse.org/v1/images/?" + urlencode(
+        {"q": q, "page_size": str(limit + 1), "mature": "false"}
+    );
+    data = _http_json(url);
+    rows: any = [];
+    try {
+        rows = data["results"];
+    } except Exception {
+        return [];
+    }
+    out: list[DossierImage] = [];
+    try {
+        for row in rows {
+            src = "";
+            try {
+                src = str(row["url"] or "");
+                if not src {
+                    src = str(row["thumbnail"] or "");
+                }
+            } except Exception {
+                continue;
+            }
+            if not src {
+                continue;
+            }
+            title: str = q;
+            creator: str = "";
+            license: str = "CC";
+            try {
+                title = str(row["title"] or q);
+            } except Exception {
+            }
+            # Soft preference: skip clearly off-city hits when query names Ann Arbor.
+            q_l = q.lower();
+            t_l = title.lower();
+            if "ann arbor" in q_l and "lima" in t_l {
+                continue;
+            }
+            try {
+                creator = str(row["creator"] or "");
+            } except Exception {
+            }
+            try {
+                license = str(row["license"] or "CC");
+            } except Exception {
+            }
+            credit = creator if creator else "Openverse";
+            if license {
+                credit = credit + " · " + license;
+            }
+            out.append(
+                DossierImage(
+                    url=src, caption=title, credit=credit, source="openverse"
+                )
+            );
+            if len(out) >= limit {
+                break;
+            }
+        }
+    } except Exception {
+    }
+    return out;
+}
+
+def _places_photos(query: str, limit: int = 2) -> list[DossierImage] {
+    key = os.environ.get("GOOGLE_MAPS_API_KEY", "").strip();
+    q = query.strip();
+    if not key or not q {
+        return [];
+    }
+    find_url = (
+        "https://maps.googleapis.com/maps/api/place/findplacefromtext/json?"
+        + urlencode(
+            {
+                "input": q + " Ann Arbor",
+                "inputtype": "textquery",
+                "fields": "name,photos,formatted_address",
+                "locationbias": "circle:12000@42.2808,-83.7430",
+                "key": key
+            }
+        )
+    );
+    data = _http_json(find_url);
+    out: list[DossierImage] = [];
+    try {
+        cands: any = data["candidates"];
+        if len(cands) == 0 {
+            return out;
+        }
+        place: any = cands[0];
+        pname: str = q;
+        try {
+            pname = str(place["name"] or q);
+        } except Exception {
+        }
+        photos: any = place["photos"];
+        i = 0;
+        for ph in photos {
+            if i >= limit {
+                break;
+            }
+            ref = "";
+            try {
+                ref = str(ph["photo_reference"] or "");
+            } except Exception {
+                continue;
+            }
+            if not ref {
+                continue;
+            }
+            photo_url = (
+                "https://maps.googleapis.com/maps/api/place/photo?"
+                + urlencode(
+                    {"maxwidth": "900", "photo_reference": ref, "key": key}
+                )
+            );
+            out.append(
+                DossierImage(
+                    url=photo_url,
+                    caption=pname,
+                    credit="Google Places",
+                    source="places"
+                )
+            );
+            i += 1;
+        }
+    } except Exception {
+    }
+    return out;
+}
+
+impl search_public_images(query: str) -> list[DossierImage] {
+    q = query.strip();
+    if not q {
+        return [];
+    }
+    hits: list[DossierImage] = [];
+    # Prefer CC Openverse (often has venue photos), then Wikipedia, then Places.
+    hits = hits + _openverse_images(q, 4);
+    if len(hits) < 2 {
+        hits = hits + _wiki_images(q, 3);
+    }
+    if len(hits) < 2 {
+        hits = hits + _places_photos(q, 2);
+    }
+    return _dedupe_images(hits, 4);
+}
+
+def _heuristic_image_queries(
+    name: str, kind: str, venue: str, organizer: str
+) -> list[str] {
+    qs: list[str] = [];
+    def add(s: str) {
+        t = s.strip();
+        if not t {
+            return;
+        }
+        low = t.lower();
+        for existing in qs {
+            if existing.lower() == low {
+                return;
+            }
+        }
+        qs.append(t);
+    }
+    if kind in ["venue", "organizer", "place"] {
+        add(name + " Ann Arbor");
+        add(name);
+    } elif kind == "event" {
+        if venue {
+            add(venue + " Ann Arbor");
+        }
+        if organizer {
+            add(organizer + " Ann Arbor");
+        }
+        add(name + " Ann Arbor");
+        add(name);
+    } else {
+        add(name + " Ann Arbor");
+        if venue {
+            add(venue + " Ann Arbor");
+        }
+        add(name);
+    }
+    return qs[:3];
+}
+
+def _collect_images_for_queries(queries: list[str]) -> list[DossierImage] {
+    hits: list[DossierImage] = [];
+    for q in queries {
+        hits = hits + search_public_images(q);
+        if len(hits) >= 4 {
+            break;
+        }
+    }
+    return _dedupe_images(hits, 4);
+}
+
+impl dossier_images(node_id: str) -> DossierMedia {
+    _ensure_seed();
+    n = _find_key(node_id);
+    if n is None {
+        return DossierMedia(images=[], queries=[], ai=False);
+    }
+    ven = _venue_of(n);
+    venue_name = ven.name if ven else "";
+    orgs = [n ->:OrganizedBy:->][?:Organizer];
+    org_name = orgs[0].name if len(orgs) > 0 else "";
+    queries = _heuristic_image_queries(n.name, n.kind, venue_name, org_name);
+    if _has_llm() {
+        try {
+            # Agent path: ReAct tool loop picks queries and returns curated set.
+            media = llm_curate_images(
+                n.name, n.kind, venue_name, org_name, n.desc
+            );
+            cleaned = _dedupe_images(media.images, 4);
+            if len(cleaned) > 0 {
+                media.images = cleaned;
+                media.ai = True;
+                if len(media.queries) == 0 {
+                    media.queries = queries;
+                }
+                return media;
+            }
+        } except Exception {
+        }
+        try {
+            plan = llm_image_queries(
+                n.name, n.kind, venue_name, org_name, n.desc
+            );
+            if plan.queries and len(plan.queries) > 0 {
+                queries = plan.queries[:3];
+            }
+        } except Exception {
+        }
+    }
+    return DossierMedia(
+        images=_collect_images_for_queries(queries),
+        queries=queries,
+        ai=False
+    );
 }

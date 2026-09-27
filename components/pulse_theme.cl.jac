@@ -16,10 +16,11 @@ glob KIND_COLORS: dict[str, str] = {
     "event": "#e11d48",
     "venue": "#6366f1",
     "organizer": "#f59e0b",
-    "category": "#78716c",
+    "category": "#38bdf8",
     "alert": "#f97316",
     "civic": "#10b981",
-    "place": "#7c6f64",
+    "place": "#0d9488",
+    "lens": "#fafaf9",
     "source": "#7c6f64"
 };
 
@@ -27,10 +28,11 @@ glob KIND_LABELS: dict[str, str] = {
     "event": "Event",
     "venue": "Venue",
     "organizer": "Organizer",
-    "category": "Category",
+    "category": "Topic",
     "alert": "Alert",
     "civic": "Civic",
     "place": "Place",
+    "lens": "Browse",
     "source": "Source"
 };
 
@@ -60,10 +62,44 @@ def:pub default_filters() -> dict {
         "kinds": [],
         "price": "any",
         "time": "week",
+        "date": "",
         "distance": 0.0,
         "reply": "",
         "query": ""
     };
+}
+
+glob SHORT_DAYS: list[str] = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+glob SHORT_MONTHS: list[str] = [
+    "Jan", "Feb", "Mar", "Apr", "May", "Jun",
+    "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"
+];
+
+def _pad2(n: int) -> str {
+    return f"0{n}" if n < 10 else str(n);
+}
+
+"""Upcoming calendar chips for the Network day bar (today + next N days)."""
+def:pub future_date_chips(days: int = 14) -> list[dict] {
+    out: list[dict] = [];
+    now: any = new(Date);
+    i: int = 0;
+    while i < days {
+        d: any = new(Date, now.getFullYear(), now.getMonth(), now.getDate() + i);
+        y: int = d.getFullYear() as int;
+        m: int = (d.getMonth() as int) + 1;
+        day_n: int = d.getDate() as int;
+        iso: str = f"{y}-{_pad2(m)}-{_pad2(day_n)}";
+        label: str = "Today";
+        if i == 1 {
+            label = "Tomorrow";
+        } elif i > 1 {
+            label = f"{SHORT_DAYS[d.getDay() as int]} {SHORT_MONTHS[d.getMonth() as int]} {day_n}";
+        }
+        out.append({"iso": iso, "label": label});
+        i += 1;
+    }
+    return out;
 }
 
 def:pub kind_color(kind: str) -> str {
