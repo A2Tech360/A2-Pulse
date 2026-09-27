@@ -25,12 +25,10 @@ import from .google_maps {
     clear_search_pin
 }
 sv import from ..services.pulse { MapSnapshot, MapItem, maps_config, map_pin_overview, MapOverview }
-sv import from ..services.event_ingest { sync_online_events, SyncReport }
 
 glob MAP_PIN_CAP: int = 80;
 glob MAP_LIST_CAP: int = 120;
 # Same live calendars Network pulls — keep map pins in sync even if Network wasn't visited.
-glob MAP_LIVE_SYNCED: bool = False;
 glob MAP_FETCH_MS: int = 45000;
 
 def join_filter_list(vals: list[str]) -> str {
@@ -45,7 +43,7 @@ def join_filter_list(vals: list[str]) -> str {
 }
 
 def:pub MapPage(
-    filters: dict, onFilters: Callable[[dict], None], dark: bool = True
+    filters: dict, onFilters: Callable[[dict], None], dark: bool = True, syncVersion: int = 0
 ) -> JsxElement {
     has items: list[MapItem] = [],
         loading: bool = True,
@@ -108,20 +106,12 @@ def:pub MapPage(
 
     async can with entry {
         load_config();
-        # Background: same public-calendar sync Network uses so map pins include live listings.
-        if not MAP_LIVE_SYNCED {
-            MAP_LIVE_SYNCED = True;
-            ensure_live_sync();
-        }
     }
 
-    async def ensure_live_sync -> None {
-        try {
-            rep: SyncReport = await sync_online_events(False);
-            if rep.ok and (rep.created > 0 or rep.updated > 0) {
-                load_pins();
-            }
-        } except Exception {
+    # AppShell syncs calendars when the app opens; reload pins once it brings new data.
+    can with [syncVersion] entry {
+        if syncVersion > 0 {
+            load_pins();
         }
     }
 
