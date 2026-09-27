@@ -20,6 +20,8 @@ import from services.brief_editor { edit_brief, strongest_first }
 import from services.speakable { speakable }
 import from services.brief_trace { new_trace, append_trace, ms, sum_by_rule }
 import from services.voice_guard { rate_check, client_ip, known_voice_ids, speak_limit, speak_window_s }
+import from services.brief_dates { brief_monday }
+import from services.event_time { in_brief_week, item_iso_date }
 
 # ---------------------------------------------------------------- nodes
 node Hub {
@@ -40,7 +42,9 @@ node PulseNode {
         address: str = "",
         source_name: str = "",
         source_url: str = "",
-        path: list[list[float]] = [];
+        path: list[list[float]] = [],
+        # ISO calendar date (YYYY-MM-DD) for dated listings; "" for seed weekday items.
+        on_date: str = "";
 }
 
 node Event(PulseNode) {}

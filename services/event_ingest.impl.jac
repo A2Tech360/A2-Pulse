@@ -5,6 +5,7 @@ import hashlib;
 import from urllib.request { Request, urlopen }
 import from datetime { datetime }
 import from services.seed_data { CATEGORIES }
+import from services.event_time { item_iso_date }
 import from services.event_parse {
     strip_html,
     extract_for_feed,
@@ -344,6 +345,10 @@ def _upsert_event(hub: Hub, raw: RawEvent, src: SourceDoc) -> str {
     when = clip(raw.when, 80);
     key = event_key(name, when, src.key);
     day = raw.day if raw.day >= 0 else parse_day(when);
+    iso_day = item_iso_date(when);
+    if day < 0 and iso_day {
+        day = datetime.fromisoformat(iso_day).weekday();    # ISO dates ("2026-10-10 19:30")
+    }
     if day < 0 {
         day = datetime.now().weekday();
     }
@@ -362,6 +367,7 @@ def _upsert_event(hub: Hub, raw: RawEvent, src: SourceDoc) -> str {
         existing.name = name;
         existing.desc = desc;
         existing.when = when if when else existing.when;
+        existing.on_date = item_iso_date(existing.when);
         existing.day = day;
         existing.price = price;
         existing.lat = ven.lat;
@@ -378,6 +384,7 @@ def _upsert_event(hub: Hub, raw: RawEvent, src: SourceDoc) -> str {
         kind="event",
         desc=desc,
         when=(when if when else "Upcoming"),
+        on_date=item_iso_date(when),
         day=day,
         price=price,
         lat=ven.lat,

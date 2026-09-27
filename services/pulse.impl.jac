@@ -1128,9 +1128,26 @@ impl GenerateBrief.rank {
     reasons: dict[str, list[str]] = {};
     nodes: dict[str, PulseNode] = {};
     rules: dict[str, list[dict]] = {};
+    # "Your week" is the brief's Monday through Sunday; anything dated outside it is skipped.
+    monday = brief_monday(datetime.now());
+    week_ok: dict[str, bool] = {};
+    dropped: list[str] = [];
+
+    def in_week(n: PulseNode) -> bool {
+        if n.key not in week_ok {
+            week_ok[n.key] = in_brief_week(n.when, n.on_date, n.key.startswith("live-"), monday);
+            if not week_ok[n.key] {
+                dropped.append(n.key);
+            }
+        }
+        return week_ok[n.key];
+    }
 
     def bump(n: PulseNode, pts: float, why: str, rule: str) -> None {
         k = n.key;
+        if not in_week(n) {
+            return;
+        }
         if k not in scores {
             scores[k] = 0.0;
             reasons[k] = [];
@@ -1219,6 +1236,7 @@ impl GenerateBrief.rank {
     trace["llm"] = {"on": pulse_llm.llm_enabled(), "model": pulse_llm.llm_model_label()};
     # The "soon" rule and date wording depend on the weekday the brief ran.
     trace["today"] = {"date": datetime.now().date().isoformat(), "weekday": today};
+    trace["week"] = {"monday": monday.isoformat(), "dropped_outside_week": len(dropped)};
     timing: dict[str, float] = {
         "profile_ms": ms(t_start, t_profile), "relevance_ms": ms(t_profile, t_score), "actions_ms": ms(t_score, t_actions)
     };
